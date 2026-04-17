@@ -11,38 +11,23 @@ set args [lrange $argv 5 end]
 
 log_user 1
 
-# Start sudo openconnect
-puts "\[EXPECT\] Starting sudo openconnect..."
-eval spawn sudo -S $openconnect_path {*}$args
+# Create a temporary script for sudo to execute (ASKPASS script)
+set sudo_askpass_script [tempfile]
+set sudo_file [open $sudo_askpass_script w]
+puts $sudo_file "#!/bin/bash"
+puts $sudo_file "echo '$sudo_password'"
+close $sudo_file
+exec chmod +x $sudo_askpass_script
 
-# Send sudo password
-puts "\[EXPECT\] Waiting for sudo password prompt..."
-expect {
-    "Password:" {
-        puts "\[EXPECT\] Sudo password prompt detected, sending password..."
-        send "$sudo_password\r"
-        exp_continue
-    }
-    "Sorry, try again" {
-        puts "\[EXPECT ERROR\] Incorrect sudo password!"
-        exit 1
-    }
-    -re "(Failed to connect|Failed to open|connection failed|Connection refused)" {
-        puts "\[EXPECT ERROR\] Network connection failed before authentication"
-        exit 1
-    }
-    -re "(Please enter your username|Username:)" {
-        puts "\[EXPECT\] Sudo authentication successful, got username prompt"
-    }
-    eof {
-        puts "\[EXPECT ERROR\] OpenConnect process ended unexpectedly"
-        exit 1
-    }
-    timeout {
-        puts "\[EXPECT ERROR\] Timeout waiting for sudo password prompt"
-        exit 1
-    }
-}
+# Set SUDO_ASKPASS to point to our helper script
+setenv SUDO_ASKPASS $sudo_askpass_script
+
+# Start openconnect through sudo with -A flag (use askpass)
+puts "\[EXPECT\] Starting sudo openconnect..."
+spawn sudo -A $openconnect_path {*}$args
+
+# Sudo will automatically use the ASKPASS script to get password
+puts "\[EXPECT\] Waiting for username prompt..."
 
 # Send username (already matched in previous expect)
 puts "\[EXPECT\] Sending VPN username..."
@@ -131,9 +116,50 @@ if {$got_2fa_prompt} {
                 exit 1
             }
         }
+
+        # Wait for response after sending 2FA PIN
+        puts "\[EXPECT\] Waiting for server response after 2FA..."
+        set timeout 45
+        expect {
+            -re "(CONNECTED|Established|Configured as)" {
+                puts "\[EXPECT\] VPN connection established after 2FA!"
+            }
+            -re "(Login failed|authentication failed|Invalid username or password)" {
+                puts "\[EXPECT ERROR\] VPN authentication failed - invalid 2FA credentials"
+                exit 1
+            }
+            eof {
+                puts "\[EXPECT ERROR\] OpenConnect process ended unexpectedly after 2FA"
+                exit 1
+            }
+            timeout {
+                puts "\[EXPECT\] No immediate response - connection may still be establishing..."
+            }
+        }
     } else {
         puts "\[EXPECT ERROR\] 2FA PIN required but not provided"
-        exit 1
+        # Don't exit with error - wait for user to enter PIN through GUI
+        # The PIN will be sent via stdin from main.js and passed through to openconnect
+        
+        puts "\[EXPECT\] Waiting for 2FA PIN from user..."
+        
+        # Use interact to pass stdin directly to the spawned process
+        # This allows openconnect to read the PIN from stdin
+        set timeout 120
+        interact {
+            -re "^(.*)$" {
+                # Capture input from stdin and send to openconnect
+                set pin_input $expect_out(1,string)
+                puts "\[EXPECT\] Received PIN from stdin: \[string length $pin_input\] chars"
+                send "$pin_input\r"
+                puts "\[EXPECT\] Sent PIN to openconnect process..."
+            }
+            timeout {
+                puts "\[EXPECT ERROR\] Timeout waiting for 2FA PIN"
+            }
+        }
+        
+        puts "\[EXPECT\] continuing after 2FA PIN input..."
     }
 }
 
@@ -149,6 +175,24 @@ expect {
     }
     timeout {
         puts "\[EXPECT\] Continuing connection (may be established)..."
+        # Wait longer for connection to establish after 2FA
+        set timeout 60
+        expect {
+            -re "(CONNECTED|Established|Configured as)" {
+                puts "\[EXPECT\] VPN connection established!"
+            }
+            -re "(Login failed|authentication failed|Invalid username or password)" {
+                puts "\[EXPECT ERROR\] VPN authentication failed - invalid credentials"
+                exit 1
+            }
+            eof {
+                puts "\[EXPECT ERROR\] OpenConnect process ended unexpectedly after 2FA"
+                exit 1
+            }
+            timeout {
+                puts "\[EXPECT\] Connection may be established, continuing to monitor..."
+            }
+        }
     }
 }
 

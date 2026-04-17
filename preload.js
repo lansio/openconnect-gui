@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteRoute: (destination, sudoPassword) => ipcRenderer.invoke('delete-route', destination, sudoPassword),
   getNetworkInterfaces: () => ipcRenderer.invoke('get-network-interfaces'),
 
+  // First-time setup
+  isFirstStart: () => ipcRenderer.invoke('is-first-start'),
+  markSetupComplete: () => ipcRenderer.invoke('mark-setup-complete'),
+
   // Event listeners
   onStatusChanged: (callback) => {
     ipcRenderer.on('status-changed', (event, status) => callback(status));

@@ -21,6 +21,7 @@ export default defineConfig({
         splash: path.resolve(__dirname, 'pages/splash.html'),
         installer: path.resolve(__dirname, 'pages/installer-helper.html'),
         password: path.resolve(__dirname, 'pages/password-prompt.html'),
+        twoFactor: path.resolve(__dirname, 'pages/two-factor-prompt.html'),
       },
       output: {
         entryFileNames: 'assets/[name]-[hash].js',

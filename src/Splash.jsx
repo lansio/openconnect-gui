@@ -3,12 +3,14 @@ import { Badge } from './components/ui/badge';
 import { Separator } from './components/ui/separator';
 import { Loader2, CheckCircle2, XCircle, AlertTriangle, Shield } from 'lucide-react';
 import { Button } from './components/ui/button';
+import SudoersNotice from './SudoersNotice';
 
 function Splash() {
   const [statusText, setStatusText] = useState('Initializing...');
   const [progress, setProgress] = useState(0);
   const [checks, setChecks] = useState([]);
   const [error, setError] = useState(null);
+  const [showSudoersNotice, setShowSudoersNotice] = useState(false);
 
   useEffect(() => {
     const { ipcRenderer } = window.require('electron');
@@ -50,9 +52,16 @@ function Splash() {
       setError(errorData);
     });
 
-    ipcRenderer.on('splash-complete', () => {
+    ipcRenderer.on('splash-complete', async () => {
       setStatusText('System checks completed successfully!');
       setProgress(100);
+      
+      // Check if first start and show sudoers notice
+      const { ipcRenderer: ipcr } = window.require('electron');
+      const isStart = await ipcr.invoke('is-first-start');
+      if (isStart) {
+        setShowSudoersNotice(true);
+      }
     });
 
     // Notify main process that splash is loaded
@@ -73,9 +82,19 @@ function Splash() {
     ipcRenderer.send('open-installer');
   };
 
-  const handleLoginClick = () => {
+  const handleLoginClick = async () => {
+    // Mark setup as complete if not done yet
     const { ipcRenderer } = window.require('electron');
+    await ipcRenderer.invoke('mark-setup-complete');
+    // Notify main process that splash is ready
     ipcRenderer.send('splash-ready');
+  };
+
+  const handleSudoersDismiss = async () => {
+    setShowSudoersNotice(false);
+    // Mark setup as complete
+    const { ipcRenderer } = window.require('electron');
+    await ipcRenderer.invoke('mark-setup-complete');
   };
 
   const getIconForStatus = (status) => {
@@ -160,11 +179,13 @@ function Splash() {
             </div>
           )}
 
-          {progress === 100 && !error && (
+          {showSudoersNotice ? (
+            <SudoersNotice onDismiss={handleSudoersDismiss} />
+          ) : progress === 100 && !error ? (
             <Button onClick={handleLoginClick} size="lg" className="w-full">
               Continue to OpenConnect
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

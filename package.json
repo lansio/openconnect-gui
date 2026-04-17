@@ -67,10 +67,6 @@
         "filter": [
           "**/*"
         ]
-      },
-      {
-        "from": "vpn-connect.exp",
-        "to": "vpn-connect.exp"
       }
     ],
     "mac": {
