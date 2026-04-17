@@ -3,7 +3,11 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-const SETUP_COMPLETE_FILE = path.join(require('electron').app.getPath('userData'), 'SETUP_COMPLETE');
+// Setup complete file path
+function getSetupCompleteFile() {
+  const { app } = require('electron');
+  return path.join(app.getPath('userData'), 'SETUP_COMPLETE');
+}
 
 // Check if OpenConnect is installed
 function checkOpenConnect() {
@@ -110,7 +114,7 @@ function showSudoersNotice() {
 
 function markSetupComplete() {
   try {
-    fs.writeFileSync(SETUP_COMPLETE_FILE, new Date().toISOString());
+    fs.writeFileSync(getSetupCompleteFile(), new Date().toISOString());
     console.log('Setup marked as complete');
   } catch (error) {
     console.error('Failed to mark setup complete:', error);
@@ -118,7 +122,7 @@ function markSetupComplete() {
 }
 
 function checkSetupComplete() {
-  return fs.existsSync(SETUP_COMPLETE_FILE);
+  return fs.existsSync(getSetupCompleteFile());
 }
 
 // Perform system checks
@@ -150,7 +154,8 @@ async function performSystemChecks(splashWindow) {
     }
     await new Promise(resolve => setTimeout(resolve, 300));
     try {
-      const userDataPath = require('electron').app.getPath('userData');
+      const { app } = require('electron');
+      const userDataPath = app.getPath('userData');
       if (!fs.existsSync(userDataPath)) {
         fs.mkdirSync(userDataPath, { recursive: true });
       }
@@ -187,7 +192,7 @@ async function performSystemChecks(splashWindow) {
       updateProgress();
       updateProgress();
       updateProgress();
-      return false;
+      return { success: false };
     }
     updateProgress();
 
