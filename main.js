@@ -12,6 +12,9 @@ let connectionStatus = 'disconnected';
 const PROFILES_FILE = path.join(app.getPath('userData'), 'profiles.json');
 let systemChecksComplete = false;
 
+// Setup complete file path
+const SETUP_COMPLETE_FILE = path.join(app.getPath('userData'), 'SETUP_COMPLETE');
+
 // Create splash window
 function createSplashWindow() {
   splashWindow = new BrowserWindow({
@@ -112,41 +115,7 @@ async function performSystemChecks() {
     }
     updateProgress();
 
-    // Check 4: Expect binary
-    if (splashWindow) {
-      splashWindow.webContents.send('system-check-start', 'Expect Binary');
-    }
-    await new Promise(resolve => setTimeout(resolve, 300));
-    const expectCheck = await checkExpect();
-    if (expectCheck.installed) {
-      if (splashWindow) {
-        splashWindow.webContents.send('system-check-complete', 'Expect Binary', true, expectCheck.path || 'Found');
-      }
-    } else {
-      if (splashWindow) {
-        splashWindow.webContents.send('system-check-complete', 'Expect Binary', false, 'Not installed');
-        splashWindow.webContents.send('splash-error', {
-          message: 'Expect is not installed. It should be pre-installed on macOS. Try: brew install expect',
-          action: null
-        });
-      }
-      updateProgress();
-      updateProgress();
-      return false;
-    }
-    updateProgress();
-
-    // Check 5: Network capabilities
-    if (splashWindow) {
-      splashWindow.webContents.send('system-check-start', 'Network Capabilities');
-    }
-    await new Promise(resolve => setTimeout(resolve, 300));
-    if (splashWindow) {
-      splashWindow.webContents.send('system-check-complete', 'Network Capabilities', true, 'Available');
-    }
-    updateProgress();
-
-    // Check 6: Sudo privileges
+    // Check 4: Sudo privileges
     if (splashWindow) {
       splashWindow.webContents.send('system-check-start', 'Sudo Privileges');
     }
@@ -163,9 +132,45 @@ async function performSystemChecks() {
     }
     updateProgress();
 
+    // Check 5: Network capabilities
+    if (splashWindow) {
+      splashWindow.webContents.send('system-check-start', 'Network Capabilities');
+    }
+    await new Promise(resolve => setTimeout(resolve, 300));
+    if (splashWindow) {
+      splashWindow.webContents.send('system-check-complete', 'Network Capabilities', true, 'Available');
+    }
+    updateProgress();
+
+    // Check 6: Sudoers configuration (first start check)
+    if (splashWindow) {
+      splashWindow.webContents.send('system-check-start', 'Sudoers Configuration');
+    }
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    const isFirstStart = !fs.existsSync(SETUP_COMPLETE_FILE);
+    if (isFirstStart) {
+      if (splashWindow) {
+        splashWindow.webContents.send('system-check-warning', 'Sudoers Configuration', 
+          'One-time sudoers setup required for passwordless sudo with SUDO_ASKPASS');
+      }
+    } else {
+      if (splashWindow) {
+        splashWindow.webContents.send('system-check-complete', 'Sudoers Configuration', true, 'Already configured');
+      }
+    }
+    updateProgress();
+
     // All checks passed
     if (splashWindow) {
       splashWindow.webContents.send('splash-complete');
+      
+      // Show sudoers notice on first start
+      if (isFirstStart && mainWindow) {
+        setTimeout(() => {
+          showSudoersNotice();
+        }, 1000);
+      }
     }
     systemChecksComplete = true;
     return true;
@@ -179,6 +184,40 @@ async function performSystemChecks() {
     }
     return false;
   }
+}
+
+// Show sudoers configuration notice on first start
+function showSudoersNotice() {
+  dialog.showMessageBox({
+    type: 'info',
+    title: 'Sudoers Configuration Required',
+    message: 'To enable passwordless VPN authentication, please run the following command in Terminal:\n\n' +
+      'sudo visudo -f /etc/sudoers.d/openconnect-gui\n\n' +
+      'Then add this line (replace YOUR_USERNAME with your username):\n' +
+      'YOUR_USERNAME ALL=(ALL) NOPASSWD: /usr/local/bin/openconnect\n' +
+      'Or for Apple Silicon:\n' +
+      'YOUR_USERNAME ALL=(ALL) NOPASSWD: /opt/homebrew/bin/openconnect\n\n' +
+      'Alternatively, you can run:\n' +
+      'echo "YOUR_USERNAME ALL=(ALL) NOPASSWD: /usr/local/bin/openconnect" | sudo tee /etc/sudoers.d/openconnect-gui',
+    buttons: ['OK'],
+    cancelId: 0,
+  }).then(() => {
+    // Mark setup complete after user acknowledges
+    markSetupComplete();
+  });
+}
+
+function markSetupComplete() {
+  try {
+    fs.writeFileSync(SETUP_COMPLETE_FILE, new Date().toISOString());
+    console.log('Setup marked as complete');
+  } catch (error) {
+    console.error('Failed to mark setup complete:', error);
+  }
+}
+
+function checkSetupComplete() {
+  return fs.existsSync(SETUP_COMPLETE_FILE);
 }
 
 // Create main window
@@ -280,36 +319,6 @@ function checkOpenConnect() {
     checkProcess.on('close', (code) => {
       if (code === 0) {
         resolve({ installed: true, path: 'openconnect' });
-      } else {
-        resolve({ installed: false });
-      }
-    });
-  });
-}
-
-// Check if expect is installed
-function checkExpect() {
-  return new Promise((resolve) => {
-    // Check for expect in common locations
-    const locations = [
-      '/usr/bin/expect',           // Standard macOS location
-      '/opt/homebrew/bin/expect',  // Homebrew (Apple Silicon)
-      '/usr/local/bin/expect',     // Homebrew (Intel Mac)
-    ];
-
-    // Check each location
-    for (const location of locations) {
-      if (fs.existsSync(location)) {
-        resolve({ installed: true, path: location });
-        return;
-      }
-    }
-
-    // Fallback to 'which' command
-    const checkProcess = spawn('which', ['expect']);
-    checkProcess.on('close', (code) => {
-      if (code === 0) {
-        resolve({ installed: true, path: 'expect' });
       } else {
         resolve({ installed: false });
       }
@@ -421,15 +430,30 @@ function updateTrayMenu() {
   tray.setToolTip(`OpenConnect VPN - ${connectionStatus}`);
 }
 
+// Handle first start check
+ipcMain.handle('is-first-start', async () => {
+  return !checkSetupComplete();
+});
+
+// Handle marking setup as complete
+ipcMain.handle('mark-setup-complete', async () => {
+  markSetupComplete();
+  return { success: true };
+});
+
 // Handle VPN connection
 ipcMain.handle('connect-vpn', async (event, config) => {
   if (openconnectProcess) {
     return { success: false, error: 'Already connected or connecting' };
   }
 
-
   try {
     updateStatus('connecting');
+
+    // Track input prompts state
+    let waitingForUsername = true;
+    let waitingForPassword = false;
+    let waitingForTwoFactorPin = false;
 
     // Get OpenConnect binary path
     const openconnectPath = await getOpenConnectPath();
@@ -444,9 +468,6 @@ ipcMain.handle('connect-vpn', async (event, config) => {
     if (vpncScriptPath && vpncScriptPath !== 'vpnc-script') {
       args.push('-s', vpncScriptPath);
     }
-
-    // Don't add --user flag - let server prompt for it interactively
-    // (Server ignores --user and prompts anyway)
 
     // Add protocol (default is anyconnect)
     const protocol = config.protocol || 'anyconnect';
@@ -474,90 +495,210 @@ ipcMain.handle('connect-vpn', async (event, config) => {
     args.push('--verbose'); // More detailed logging
 
     // Log the command being executed (without password)
-    sendLog(`Executing: sudo openconnect ${args.join(' ')}`, 'info');
+    sendLog(`Executing: sudo -A openconnect ${args.join(' ')}`, 'info');
 
-    // Request sudo password from user
-    sendLog('[DEBUG] Prompting for sudo password...', 'info');
-    const sudoPassword = await promptForSudoPassword();
-    if (!sudoPassword) {
-      sendLog('[ERROR] No sudo password provided by user', 'error');
-      updateStatus('disconnected');
-      return { success: false, error: 'Sudo password required' };
-    }
-    sendLog('[DEBUG] Sudo password received (length: ' + sudoPassword.length + ')', 'info');
-
-    // Use expect script for proper PTY handling
-    // In production, it's in extraResources; in dev, it's in project root
-    const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-    const expectScriptPath = isDev
-      ? path.join(__dirname, 'vpn-connect.exp')
-      : path.join(process.resourcesPath, 'vpn-connect.exp');
-
-    const expectArgs = [
-      expectScriptPath,
-      openconnectPath,
-      sudoPassword,
-      config.username.trim(),
-      config.password.trim(),
-      config.pin2fa?.trim() || '',
-      ...args
-    ];
-
-    sendLog('[DEBUG] Using expect script for interactive authentication', 'info');
-    sendLog(`[DEBUG] Expect script path: ${expectScriptPath}`, 'info');
-
-    const sudoProcess = spawn('expect', expectArgs, {
-      stdio: ['pipe', 'pipe', 'pipe']
+    // Spawn openconnect directly with sudo -A
+    // SUDO_ASKPASS will automatically prompt for password if needed (not configured in sudoers)
+    // If user has configured NOPASSWD, no password prompt will appear
+    const sudoProcess = spawn('sudo', ['-A', openconnectPath, ...args], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: Object.assign({}, process.env, {
+        SUDO_ASKPASS: '/bin/echo'  // Simple askpass that just echoes password
+      })
     });
 
     openconnectProcess = sudoProcess;
 
-    // Track connection status
-    let connected = false;
-    let authError = false;
-
-    // Handle stdout
+    // Handle stdout from openconnect
     sudoProcess.stdout.on('data', (data) => {
       const output = data.toString();
       sendLog(output);
 
-      if ((output.includes('CONNECTED') || output.includes('Established') || output.includes('Configured as')) && !connected) {
-        connected = true;
+      // Handle username prompt (can appear on stdout)
+      if (waitingForUsername && (output.includes('Username') || output.includes('login:'))) {
+        sendLog('[DEBUG] Username prompt detected on stdout, sending username...', 'info');
+        sudoProcess.stdin.write(config.username.trim() + '\n');
+        waitingForUsername = false;
+        waitingForPassword = true;
+        return;
+      }
+
+      // Handle password prompt (can appear on stdout)
+      if (waitingForPassword && (output.includes('Password') || output.includes('password:') || output.includes('Enter password'))) {
+        sendLog('[DEBUG] Password prompt detected on stdout, sending password...', 'info');
+        sudoProcess.stdin.write(config.password.trim() + '\n');
+        waitingForPassword = false;
+        return;
+      }
+
+      // Handle 2FA prompts (can appear as "Password:" second time or "Response:")
+      if ((output.includes('Response:') || output.includes('Enter 2FA code') || 
+           output.includes('verification code') || output.includes('Two-Factor Password') ||
+           output.includes('one-time password')) && !waitingForPassword) {
+        sendLog('[INFO] 2FA PIN required by server', 'info');
+        waitingForTwoFactorPin = true;
+
+        // Prompt user for 2FA PIN
+        promptForTwoFactorPin().then((pin) => {
+          if (openconnectProcess && !waitingForTwoFactorPin) {
+            // 2FA prompt already resolved or cancelled
+            return;
+          }
+
+          if (pin !== null && pin !== undefined) {
+            // User entered PIN - send it through stdin
+            sendLog('[DEBUG] Sending 2FA PIN to openconnect process...', 'info');
+            sudoProcess.stdin.write(pin + '\n');
+
+            // Reset 2FA state after sending PIN
+            waitingForTwoFactorPin = false;
+          } else {
+            // User cancelled - disconnect
+            sendLog('[INFO] 2FA prompt cancelled by user', 'info');
+            waitingForTwoFactorPin = false;
+            disconnectVPN();
+          }
+        }).catch((error) => {
+          sendLog(`[ERROR] Error prompting for 2FA PIN: ${error.message}`, 'error');
+          waitingForTwoFactorPin = false;
+        });
+      }
+
+      // Handle second Password prompt for 2FA (after first password was sent)
+      if (output.includes('Password') && !waitingForPassword && !waitingForTwoFactorPin) {
+        sendLog('[INFO] Second Password prompt detected (likely 2FA)', 'info');
+        waitingForTwoFactorPin = true;
+
+        // Prompt user for 2FA PIN
+        promptForTwoFactorPin().then((pin) => {
+          if (openconnectProcess && !waitingForTwoFactorPin) {
+            // 2FA prompt already resolved or cancelled
+            return;
+          }
+
+          if (pin !== null && pin !== undefined) {
+            // User entered PIN - send it through stdin
+            sendLog('[DEBUG] Sending 2FA PIN to openconnect process...', 'info');
+            sudoProcess.stdin.write(pin + '\n');
+
+            // Reset 2FA state after sending PIN
+            waitingForTwoFactorPin = false;
+          } else {
+            // User cancelled - disconnect
+            sendLog('[INFO] 2FA prompt cancelled by user', 'info');
+            waitingForTwoFactorPin = false;
+            disconnectVPN();
+          }
+        }).catch((error) => {
+          sendLog(`[ERROR] Error prompting for 2FA PIN: ${error.message}`, 'error');
+          waitingForTwoFactorPin = false;
+        });
+      }
+
+      // Check for successful connection
+      if (output.includes('CONNECTED') || output.includes('Established') || output.includes('Configured as')) {
         updateStatus('connected');
         sendLog('Connection established successfully!', 'info');
       }
     });
 
-    // Handle stderr - this is where OpenConnect output appears
+    // Handle stderr from openconnect
     sudoProcess.stderr.on('data', (data) => {
       const output = data.toString();
-      sendLog(output);
+      sendLog('[STDERR] ' + output);
+
+      // Handle username prompt on stderr
+      if (waitingForUsername && (output.includes('Username') || output.includes('login:'))) {
+        sendLog('[DEBUG] Username prompt detected on stderr, sending username...', 'info');
+        sudoProcess.stdin.write(config.username.trim() + '\n');
+        waitingForUsername = false;
+        waitingForPassword = true;
+        return;
+      }
+
+      // Handle password prompt on stderr
+      if (waitingForPassword && (output.includes('Password') || output.includes('password:') || output.includes('Enter password'))) {
+        sendLog('[DEBUG] Password prompt detected on stderr, sending password...', 'info');
+        sudoProcess.stdin.write(config.password.trim() + '\n');
+        waitingForPassword = false;
+        return;
+      }
+
+      // Handle 2FA prompts on stderr (can appear as "Password:" second time or "Response:")
+      if ((output.includes('Response:') || output.includes('Enter 2FA code') ||
+           output.includes('verification code') || output.includes('Two-Factor Password') ||
+           output.includes('one-time password')) && !waitingForPassword) {
+        sendLog('[INFO] 2FA PIN required by server (stderr)', 'info');
+        waitingForTwoFactorPin = true;
+
+        // Prompt user for 2FA PIN
+        promptForTwoFactorPin().then((pin) => {
+          if (openconnectProcess && !waitingForTwoFactorPin) {
+            // 2FA prompt already resolved or cancelled
+            return;
+          }
+
+          if (pin !== null && pin !== undefined) {
+            // User entered PIN - send it through stdin
+            sendLog('[DEBUG] Sending 2FA PIN to openconnect process (stderr)...', 'info');
+            sudoProcess.stdin.write(pin + '\n');
+
+            // Reset 2FA state after sending PIN
+            waitingForTwoFactorPin = false;
+          } else {
+            // User cancelled - disconnect
+            sendLog('[INFO] 2FA prompt cancelled by user (stderr)', 'info');
+            waitingForTwoFactorPin = false;
+            disconnectVPN();
+          }
+        }).catch((error) => {
+          sendLog(`[ERROR] Error prompting for 2FA PIN (stderr): ${error.message}`, 'error');
+          waitingForTwoFactorPin = false;
+        });
+      }
+
+      // Handle second Password prompt for 2FA (after first password was sent) on stderr
+      if (output.includes('Password') && !waitingForPassword && !waitingForTwoFactorPin) {
+        sendLog('[INFO] Second Password prompt detected (likely 2FA, stderr)', 'info');
+        waitingForTwoFactorPin = true;
+
+        // Prompt user for 2FA PIN
+        promptForTwoFactorPin().then((pin) => {
+          if (openconnectProcess && !waitingForTwoFactorPin) {
+            // 2FA prompt already resolved or cancelled
+            return;
+          }
+
+          if (pin !== null && pin !== undefined) {
+            // User entered PIN - send it through stdin
+            sendLog('[DEBUG] Sending 2FA PIN to openconnect process (stderr)...', 'info');
+            sudoProcess.stdin.write(pin + '\n');
+
+            // Reset 2FA state after sending PIN
+            waitingForTwoFactorPin = false;
+          } else {
+            // User cancelled - disconnect
+            sendLog('[INFO] 2FA prompt cancelled by user (stderr)', 'info');
+            waitingForTwoFactorPin = false;
+            disconnectVPN();
+          }
+        }).catch((error) => {
+          sendLog(`[ERROR] Error prompting for 2FA PIN (stderr): ${error.message}`, 'error');
+          waitingForTwoFactorPin = false;
+        });
+      }
 
       // Check for sudo password errors
-      if (output.includes('[EXPECT ERROR] Incorrect sudo password')) {
-        authError = true;
+      if (output.includes('Sorry, try again') || output.includes('incorrect password')) {
         sendLog('[ERROR] Sudo password authentication failed!', 'error');
       }
 
       // Check for VPN authentication errors
-      if (output.includes('[EXPECT ERROR] VPN authentication failed')) {
-        authError = true;
-        sendLog('[ERROR] VPN credentials are incorrect!', 'error');
+      if (output.includes('authentication failed') || output.includes('Login failed')) {
+        sendLog('[ERROR] VPN authentication failed!', 'error');
       }
 
-      // Check for timeout errors
-      if (output.includes('[EXPECT ERROR] Timeout')) {
-        authError = true;
-        sendLog('[ERROR] Connection timeout occurred', 'error');
-      }
-
-      if ((output.includes('CONNECTED') || output.includes('Established') || output.includes('Configured as')) && !connected) {
-        connected = true;
-        updateStatus('connected');
-        sendLog('Connection established successfully!', 'info');
-      }
-
-      // Ignore vpnc-script errors (connection still works)
+      // Check for vpnc-script errors (connection still works)
       if (output.includes('is not a recognized network service') || output.includes('Error: The parameters were not valid')) {
         sendLog('Note: Route configuration had errors but VPN tunnel is established', 'info');
       }
@@ -575,11 +716,7 @@ ipcMain.handle('connect-vpn', async (event, config) => {
         let errorMessage = `Connection closed with exit code ${code}`;
 
         // Provide specific error messages based on context
-        if (authError) {
-          if (code === 1) {
-            errorMessage = 'Authentication failed. Please check your credentials.';
-          }
-        } else if (code === 1) {
+        if (code === 1) {
           errorMessage = 'Connection failed. This may be due to incorrect sudo password or network issues.';
         }
 
@@ -588,7 +725,7 @@ ipcMain.handle('connect-vpn', async (event, config) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('connection-error', errorMessage);
         }
-      } else if (code === 0 && connected) {
+      } else if (code === 0) {
         // Clean exit while connected - this is unexpected
         sendLog(`[WARNING] VPN disconnected cleanly. This may be due to:`, 'error');
         sendLog(`  - Network interruption or timeout`, 'error');
@@ -603,8 +740,10 @@ ipcMain.handle('connect-vpn', async (event, config) => {
 
     sudoProcess.on('error', (error) => {
       sendLog(`Error: ${error.message}`, 'error');
+      
       openconnectProcess = null;
       updateStatus('disconnected');
+      
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('connection-error', error.message);
       }
@@ -757,15 +896,10 @@ ipcMain.handle('kill-process', async (event, pid, sudoPassword) => {
             error: 'Incorrect sudo password',
             incorrectPassword: true
           });
-        } else if (stderr.includes('No such process')) {
-          resolve({
-            success: false,
-            error: `Process ${pid} not found or already terminated`
-          });
         } else {
           resolve({
             success: false,
-            error: stderr || `Failed to kill process with exit code ${code}`
+            error: `Failed to kill process (exit code: ${code})`
           });
         }
       }
@@ -774,286 +908,7 @@ ipcMain.handle('kill-process', async (event, pid, sudoPassword) => {
     sudoProcess.on('error', (error) => {
       resolve({ success: false, error: error.message });
     });
-
-    // Send password to sudo
-    sudoProcess.stdin.write(sudoPassword + '\n');
-    sudoProcess.stdin.end();
   });
-});
-
-// Install OpenConnect via the bundled script
-ipcMain.handle('install-openconnect', async () => {
-  return new Promise((resolve) => {
-    const scriptPath = path.join(__dirname, 'scripts', 'install-openconnect.sh');
-
-    // Check if running in development or production
-    const actualScriptPath = fs.existsSync(scriptPath)
-      ? scriptPath
-      : path.join(process.resourcesPath, 'scripts', 'install-openconnect.sh');
-
-    if (!fs.existsSync(actualScriptPath)) {
-      resolve({ success: false, error: 'Installation script not found' });
-      return;
-    }
-
-    // Open Terminal and run the script
-    const command = `osascript -e 'tell application "Terminal" to do script "bash \\"${actualScriptPath}\\"; exit"'`;
-
-    exec(command, (error) => {
-      if (error) {
-        resolve({ success: false, error: error.message });
-      } else {
-        resolve({ success: true });
-      }
-    });
-  });
-});
-
-// Open Terminal
-ipcMain.on('open-terminal', () => {
-  shell.openPath('/System/Applications/Utilities/Terminal.app');
-});
-
-// Network diagnostics: Get routing table
-ipcMain.handle('get-routes', async () => {
-  return new Promise((resolve) => {
-    exec('netstat -rn', (error, stdout, stderr) => {
-      if (error) {
-        resolve({ success: false, error: stderr || error.message });
-        return;
-      }
-
-      // Parse routing table
-      const lines = stdout.split('\n');
-      const routes = [];
-      let inInternetSection = false;
-
-      for (const line of lines) {
-        if (line.includes('Internet:')) {
-          inInternetSection = true;
-          continue;
-        }
-        if (line.includes('Internet6:')) {
-          inInternetSection = false;
-          break;
-        }
-        if (inInternetSection && line.trim() && !line.includes('Destination')) {
-          const parts = line.trim().split(/\s+/);
-          if (parts.length >= 4) {
-            routes.push({
-              destination: parts[0],
-              gateway: parts[1],
-              flags: parts[2],
-              interface: parts[3]
-            });
-          }
-        }
-      }
-
-      resolve({ success: true, routes });
-    });
-  });
-});
-
-// Network diagnostics: Test connectivity to a host
-ipcMain.handle('test-connectivity', async (event, host, port) => {
-  return new Promise((resolve) => {
-    if (!host || !port) {
-      resolve({ success: false, error: 'Host and port are required' });
-      return;
-    }
-
-    // Validate port is a number between 1-65535
-    const portNumber = parseInt(port, 10);
-    if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) {
-      resolve({ success: false, error: 'Invalid port number' });
-      return;
-    }
-
-    // Validate host format (basic hostname/IP validation)
-    // Allow alphanumeric, dots, hyphens, and colons (for IPv6)
-    const validHostPattern = /^[a-zA-Z0-9\.\-:]+$/;
-    if (!validHostPattern.test(host)) {
-      resolve({ success: false, error: 'Invalid host format' });
-      return;
-    }
-
-    const timeout = 5000;
-    // Use spawn instead of exec to prevent command injection
-    const ncProcess = spawn('nc', ['-zv', '-G', '5', host, portNumber.toString()], {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    ncProcess.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    ncProcess.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    ncProcess.on('close', (code) => {
-      const output = stdout + stderr;
-      const success = code === 0 && (output.includes('succeeded') || output.includes('open'));
-
-      resolve({
-        success,
-        host,
-        port: portNumber,
-        message: output.trim(),
-        reachable: success
-      });
-    });
-
-    ncProcess.on('error', (error) => {
-      resolve({
-        success: false,
-        host,
-        port: portNumber,
-        message: error.message,
-        reachable: false
-      });
-    });
-
-    // Set timeout
-    setTimeout(() => {
-      if (!ncProcess.killed) {
-        ncProcess.kill();
-        resolve({
-          success: false,
-          host,
-          port: portNumber,
-          message: 'Connection timed out',
-          reachable: false
-        });
-      }
-    }, timeout);
-  });
-});
-
-// Network diagnostics: Delete a route
-ipcMain.handle('delete-route', async (event, destination, sudoPassword) => {
-  return new Promise((resolve) => {
-    if (!destination) {
-      resolve({ success: false, error: 'Destination is required' });
-      return;
-    }
-
-    // Validate destination format to prevent command injection
-    // Allow: IP addresses, CIDR notation, or "default"
-    const validDestinationPattern = /^(default|(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?)$/;
-    if (!validDestinationPattern.test(destination)) {
-      resolve({ success: false, error: 'Invalid destination format' });
-      return;
-    }
-
-    if (!sudoPassword) {
-      resolve({
-        success: false,
-        error: 'Sudo password required',
-        needsSudo: true
-      });
-      return;
-    }
-
-    // Use spawn with sudo -S to pass password via stdin
-    // Destination is validated, safe to use in command
-    const sudoProcess = spawn('sudo', ['-S', 'route', 'delete', destination], {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    sudoProcess.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    sudoProcess.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    sudoProcess.on('close', (code) => {
-      if (code === 0) {
-        resolve({ success: true, message: `Route to ${destination} deleted` });
-      } else {
-        // Check for common error messages
-        if (stderr.includes('Sorry, try again') || stderr.includes('incorrect password')) {
-          resolve({
-            success: false,
-            error: 'Incorrect sudo password',
-            incorrectPassword: true
-          });
-        } else {
-          resolve({
-            success: false,
-            error: stderr || `Failed with exit code ${code}`
-          });
-        }
-      }
-    });
-
-    sudoProcess.on('error', (error) => {
-      resolve({ success: false, error: error.message });
-    });
-
-    // Send password to sudo
-    sudoProcess.stdin.write(sudoPassword + '\n');
-    sudoProcess.stdin.end();
-  });
-});
-
-// Network diagnostics: Get network interfaces
-ipcMain.handle('get-network-interfaces', async () => {
-  return new Promise((resolve) => {
-    exec('ifconfig', (error, stdout, stderr) => {
-      if (error) {
-        resolve({ success: false, error: stderr || error.message });
-        return;
-      }
-
-      // Parse interfaces - simplified version
-      const interfaces = [];
-      const sections = stdout.split(/\n(?=[a-z])/);
-
-      for (const section of sections) {
-        const lines = section.split('\n');
-        const firstLine = lines[0];
-        if (!firstLine) continue;
-
-        const nameMatch = firstLine.match(/^([a-z0-9]+):/);
-        if (!nameMatch) continue;
-
-        const name = nameMatch[1];
-        const statusMatch = section.match(/status: (\w+)/);
-        const inetMatch = section.match(/inet (\d+\.\d+\.\d+\.\d+)/);
-
-        if (inetMatch || statusMatch) {
-          interfaces.push({
-            name,
-            status: statusMatch ? statusMatch[1] : 'unknown',
-            ip: inetMatch ? inetMatch[1] : null
-          });
-        }
-      }
-
-      resolve({ success: true, interfaces });
-    });
-  });
-});
-
-// Handle successful OpenConnect installation
-ipcMain.on('openconnect-installed', () => {
-  if (installerWindow) {
-    installerWindow.close();
-  }
-  // Refresh the main window to re-check OpenConnect
-  if (mainWindow) {
-    mainWindow.reload();
-  }
 });
 
 // Splash screen IPC handlers
@@ -1165,6 +1020,60 @@ async function promptForSudoPassword() {
     setTimeout(() => {
       if (promptWindow && !promptWindow.isDestroyed() && !promptWindow.isVisible()) {
         sendLog('[DEBUG] Showing sudo password prompt (fallback)', 'info');
+        promptWindow.show();
+      }
+    }, 100);
+  });
+}
+
+async function promptForTwoFactorPin() {
+  return new Promise((resolve) => {
+    // Create a window to get 2FA PIN
+    sendLog('[DEBUG] Creating 2FA PIN prompt window...', 'info');
+
+    const promptWindow = new BrowserWindow({
+      width: 520,
+      height: 400,
+      parent: mainWindow,
+      modal: false,  // Changed from true to false - allows window to show even if main window is hidden
+      show: false,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false
+      }
+    });
+
+    const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+    if (isDev) {
+      promptWindow.loadURL('http://localhost:5173/pages/two-factor-prompt.html');
+    } else {
+      promptWindow.loadFile(path.join(__dirname, 'dist', 'pages', 'two-factor-prompt.html'));
+    }
+
+    ipcMain.once('two-factor-pin-entered', (event, pin) => {
+      sendLog('[DEBUG] 2FA PIN entered by user', 'info');
+      promptWindow.close();
+      resolve(pin);
+    });
+
+    promptWindow.on('closed', () => {
+      sendLog('[DEBUG] 2FA PIN prompt window closed', 'info');
+      resolve(null);
+    });
+
+    promptWindow.once('ready-to-show', () => {
+      sendLog('[DEBUG] 2FA PIN prompt ready to show', 'info');
+      promptWindow.show();
+    });
+
+    // Fallback: show after a short delay if ready-to-show doesn't fire
+    setTimeout(() => {
+      if (promptWindow && !promptWindow.isDestroyed() && !promptWindow.isVisible()) {
+        sendLog('[DEBUG] Showing 2FA PIN prompt (fallback)', 'info');
         promptWindow.show();
       }
     }, 100);
