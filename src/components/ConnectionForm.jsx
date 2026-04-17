@@ -22,6 +22,7 @@ function ConnectionForm({
     serverUrl: '',
     username: '',
     password: '',
+    pin2fa: '',
     authgroup: '',
     protocol: 'anyconnect',
     serverCert: ''
@@ -48,6 +49,7 @@ function ConnectionForm({
         serverUrl: '',
         username: '',
         password: '',
+        pin2fa: '',
         authgroup: '',
         protocol: 'anyconnect',
         serverCert: ''
@@ -66,6 +68,7 @@ function ConnectionForm({
         serverUrl: profile.server,
         username: profile.username,
         password: profile.password,
+        pin2fa: profile.pin2fa || '',
         authgroup: profile.authgroup || '',
         protocol: profile.protocol || 'anyconnect',
         serverCert: profile.serverCert || ''
@@ -88,6 +91,7 @@ function ConnectionForm({
       server: formData.serverUrl.trim(),
       username: formData.username.trim(),
       password: formData.password.trim(),
+      pin2fa: formData.pin2fa?.trim() || '',
       authgroup: formData.authgroup?.trim() || undefined,
       protocol: formData.protocol || 'anyconnect',
       serverCert: formData.serverCert?.trim() || undefined
@@ -128,6 +132,7 @@ function ConnectionForm({
       server: formData.serverUrl,
       username: formData.username,
       password: formData.password,
+      pin2fa: formData.pin2fa || '',
       authgroup: formData.authgroup || '',
       protocol: formData.protocol || 'anyconnect',
       serverCert: formData.serverCert || ''
@@ -167,6 +172,7 @@ function ConnectionForm({
         serverUrl: '',
         username: '',
         password: '',
+        pin2fa: '',
         authgroup: '',
         protocol: 'anyconnect',
         serverCert: ''
@@ -271,6 +277,19 @@ function ConnectionForm({
               onChange={handleInputChange}
             />
             <p className="text-xs text-muted-foreground">⚠️ Warning: Password is stored in plaintext locally</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="pin2fa">2FA PIN (optional)</Label>
+            <Input
+              type="password"
+              id="pin2fa"
+              name="pin2fa"
+              placeholder="Enter 2FA PIN code if required"
+              value={formData.pin2fa}
+              onChange={handleInputChange}
+            />
+            <p className="text-xs text-muted-foreground">Enter your 2FA PIN code if your VPN requires two-factor authentication</p>
           </div>
 
           <div className="space-y-2">

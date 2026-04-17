@@ -499,6 +499,7 @@ ipcMain.handle('connect-vpn', async (event, config) => {
       sudoPassword,
       config.username.trim(),
       config.password.trim(),
+      config.pin2fa?.trim() || '',
       ...args
     ];
 

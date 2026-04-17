@@ -5,7 +5,9 @@ set openconnect_path [lindex $argv 0]
 set sudo_password [lindex $argv 1]
 set username [lindex $argv 2]
 set vpn_password [lindex $argv 3]
-set args [lrange $argv 4 end]
+# 2FA PIN is optional - may be empty
+set pin_2fa [lindex $argv 4]
+set args [lrange $argv 5 end]
 
 log_user 1
 
@@ -59,7 +61,83 @@ expect {
     }
 }
 
-# Wait for connection or error
+# Wait for possible second factor (2FA) prompts after password is sent
+# The 2FA can come in various forms:
+# - "Response:" prompt (common for some VPN servers)
+# - Second "Password:" prompt
+# - Other variations like "Enter 2FA code", "verification code", etc.
+puts "\[EXPECT\] Checking for 2FA response prompt..."
+set got_2fa_prompt 0
+expect {
+    -re "(Response:)" {
+        puts "\[EXPECT\] Response prompt detected (2FA required)..."
+        set got_2fa_prompt 1
+    }
+    -re "(Please enter your password|Password:)" {
+        # This is the second Password prompt (2FA)
+        puts "\[EXPECT\] Second Password prompt detected (2FA required)..."
+        set got_2fa_prompt 1
+    }
+    -re "(Enter.*PIN|Enter 2FA code|verification code|Two-Factor Password|two-factor|2fa|one-time.*password|otp)" {
+        puts "\[EXPECT\] 2FA PIN prompt detected!"
+        set got_2fa_prompt 1
+    }
+    -re "(CONNECTED|Established|Configured as)" {
+        puts "\[EXPECT\] VPN connection established without 2FA!"
+    }
+    -re "(Login failed|authentication failed|Invalid username or password)" {
+        puts "\[EXPECT ERROR\] VPN authentication failed - invalid credentials"
+        exit 1
+    }
+    timeout {
+        puts "\[EXPECT\] No 2FA prompt detected - continuing without PIN"
+    }
+}
+
+# If 2FA prompt was detected, send the PIN
+if {$got_2fa_prompt} {
+    puts "\[EXPECT\] Sending 2FA PIN..."
+    if {$pin_2fa ne ""} {
+        send "$pin_2fa\r"
+        puts "\[EXPECT\] 2FA PIN sent successfully"
+        
+        # Wait for possible third factor (some servers send another Response:)
+        set got_second_2fa 0
+        expect {
+            -re "(Response:)" {
+                puts "\[EXPECT\] Second Response prompt detected (second 2FA factor)..."
+                set got_second_2fa 1
+            }
+            -re "(CONNECTED|Established|Configured as)" {
+                puts "\[EXPECT\] VPN connection established after 2FA!"
+            }
+            -re "(Login failed|authentication failed|Invalid username or password)" {
+                puts "\[EXPECT ERROR\] VPN authentication failed - invalid 2FA credentials"
+                exit 1
+            }
+            timeout {
+                puts "\[EXPECT\] No second 2FA prompt - continuing..."
+            }
+        }
+        
+        # If second 2FA was detected, send PIN again
+        if {$got_second_2fa} {
+            puts "\[EXPECT\] Sending 2FA PIN (second factor)..."
+            if {$pin_2fa ne ""} {
+                send "$pin_2fa\r"
+                puts "\[EXPECT\] Second 2FA PIN sent successfully"
+            } else {
+                puts "\[EXPECT ERROR\] Second 2FA required but not provided"
+                exit 1
+            }
+        }
+    } else {
+        puts "\[EXPECT ERROR\] 2FA PIN required but not provided"
+        exit 1
+    }
+}
+
+# Wait for connection or final error
 puts "\[EXPECT\] Waiting for connection result..."
 expect {
     -re "(CONNECTED|Established|Configured as)" {
