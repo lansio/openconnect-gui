@@ -75,7 +75,7 @@
     "mac": {
       "category": "public.app-category.utilities",
       "target": "dmg",
-      "icon": "build/tunnel-icon.icns"
+      "icon": "assets/building-tunnel"
     }
   }
 }
