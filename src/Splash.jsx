@@ -67,7 +67,8 @@ function Splash() {
       if (isSetupComplete) {
         // Setup already done, go directly to main window
         console.log('[Splash] Direct transition to main window...');
-        ipcr.send('splash-ready');
+        // Don't send splash-complete here as it would trigger duplicate window creation
+        // The main process already handles creating the main window
       } else {
         // First time setup, show sudoers notice
         setShowSudoersNotice(true);
@@ -99,9 +100,8 @@ function Splash() {
       console.log('[Splash] Marking setup as complete...');
       const result = await ipcRenderer.invoke('mark-setup-complete');
       console.log('[Splash] Mark setup complete result:', result);
-      // Notify main to create and show window
-      ipcRenderer.send('splash-ready');
-      console.log('[Splash] Event sent, waiting for main window...');
+      // Window will be created by splash-loaded handler, no need to sendsplash-ready
+      console.log('[Splash] Waiting for main window...');
     } catch (error) {
       console.error('[Splash] Error in handleLoginClick:', error);
     }
@@ -112,8 +112,7 @@ function Splash() {
     // Mark setup as complete
     const { ipcRenderer } = window.require('electron');
     await ipcRenderer.invoke('mark-setup-complete');
-    // Notify main to create and show window
-    ipcRenderer.send('splash-ready');
+    // Window will be created by splash-loaded handler, no need to send splash-ready
   };
 
   const getIconForStatus = (status) => {

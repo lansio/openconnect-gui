@@ -410,6 +410,169 @@ console.log('[main] Registering IPC handlers...');
 // Attach ipcMain before any handlers to ensure it's ready
 const { BrowserWindow } = require('electron');
 
+// Process and network diagnostic handlers
+ipcMain.handle('check-running-processes', async () => {
+  return new Promise((resolve, reject) => {
+    exec('ps aux | grep -v grep', { maxBuffer: 1024 * 1024 }, (error, stdout) => {
+      if (error) {
+        console.log('[ERROR] check-running-processes:', error.message);
+        reject(error);
+        return;
+      }
+      
+      const processes = stdout
+        .trim()
+        .split('\n')
+        .map(line => {
+          const parts = line.split(/\s+/);
+          return {
+            user: parts[0],
+            pid: parts[1],
+            cpu: parts[2],
+            mem: parts[3],
+            vsz: parts[4],
+            rss: parts[5],
+            tty: parts[6],
+            stat: parts[7],
+            start: parts[8],
+            time: parts[9],
+            command: parts.slice(10).join(' ')
+          };
+        });
+      
+      resolve(processes);
+    });
+  });
+});
+
+ipcMain.handle('get-routes', async () => {
+  return new Promise((resolve, reject) => {
+    exec('netstat -rn', { maxBuffer: 1024 * 1024 }, (error, stdout) => {
+      if (error) {
+        console.log('[ERROR] get-routes:', error.message);
+        reject(error);
+        return;
+      }
+      
+      const lines = stdout.trim().split('\n');
+      resolve(lines);
+    });
+  });
+});
+
+ipcMain.handle('kill-process', async (event, pid, sudoPassword) => {
+  return new Promise((resolve, reject) => {
+    const { exec } = require('child_process');
+    exec(`echo '${sudoPassword}' | sudo -S kill ${pid}`, { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        console.log('[ERROR] kill-process:', error.message);
+        reject(error);
+        return;
+      }
+      resolve({ success: true, stdout, stderr });
+    });
+  });
+});
+
+ipcMain.handle('test-connectivity', async (event, host, port) => {
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('child_process');
+    const timeout = 5000;
+    
+    let stdout = '';
+    let stderr = '';
+    
+    const ncProcess = spawn('nc', ['-zv', '-w', '5', host, port.toString()]);
+    
+    ncProcess.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    
+    ncProcess.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+    
+    ncProcess.on('close', (code) => {
+      const success = code === 0;
+      resolve({ success, stdout, stderr, exitCode: code });
+    });
+    
+    ncProcess.on('error', (error) => {
+      reject(error);
+    });
+    
+    setTimeout(() => {
+      ncProcess.kill('SIGTERM');
+      resolve({ success: false, stdout, stderr, exitCode: null, timeout: true });
+    }, timeout);
+  });
+});
+
+ipcMain.handle('delete-route', async (event, destination, sudoPassword) => {
+  return new Promise((resolve, reject) => {
+    const { exec } = require('child_process');
+    
+    // Try to delete route using sudo
+    const cmd = `echo '${sudoPassword}' | sudo -S route delete ${destination}`;
+    exec(cmd, { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        console.log('[ERROR] delete-route:', error.message);
+        reject(error);
+        return;
+      }
+      resolve({ success: true, stdout, stderr });
+    });
+  });
+});
+
+ipcMain.handle('get-network-interfaces', async () => {
+  return new Promise((resolve, reject) => {
+    exec('ifconfig', { maxBuffer: 1024 * 1024 }, (error, stdout) => {
+      if (error) {
+        console.log('[ERROR] get-network-interfaces:', error.message);
+        reject(error);
+        return;
+      }
+      
+      // Parse ifconfig output
+      const interfaces = [];
+      const blocks = stdout.split('\n\n');
+      
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+        
+        const lines = block.split('\n');
+        let interfaceName = '';
+        const info = {};
+        
+        for (const line of lines) {
+          if (line.match(/^[a-zA-Z0-9]+:/)) {
+            interfaceName = line.split(':')[0];
+          } else if (line.includes('inet ')) {
+            const parts = line.trim().split(/\s+/);
+            info.address = parts[1];
+          } else if (line.includes('netmask ')) {
+            info.netmask = parts[1];
+          } else if (line.includes('broadcast ')) {
+            info.broadcast = parts[1];
+          } else if (line.includes('status:')) {
+            const statusMatch = line.match(/status: (.+)$/);
+            if (statusMatch) {
+              info.status = statusMatch[1];
+            }
+          }
+        }
+        
+        if (interfaceName && Object.keys(info).length > 0) {
+          interfaces.push({ name: interfaceName, ...info });
+        }
+      }
+      
+      resolve(interfaces);
+    });
+  });
+});
+
 ipcMain.handle('connect-vpn', async (event, config) => {
   return connectVPN(config);
 });
