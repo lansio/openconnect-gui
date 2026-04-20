@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Badge } from './components/ui/badge';
 import { Separator } from './components/ui/separator';
-import { Loader2, CheckCircle2, XCircle, AlertTriangle, Shield } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, AlertTriangle, Shield, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from './components/ui/button';
 import SudoersNotice from './SudoersNotice';
 
@@ -11,6 +11,8 @@ function Splash() {
   const [checks, setChecks] = useState([]);
   const [error, setError] = useState(null);
   const [showSudoersNotice, setShowSudoersNotice] = useState(false);
+  const [expandChecks, setExpandChecks] = useState(false);
+  const containerRef = useRef(null);
 
   useEffect(() => {
     const { ipcRenderer } = window.require('electron');
@@ -122,7 +124,7 @@ function Splash() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
+    <div className="flex min-h-screen items-center justify-center bg-background p-6" ref={containerRef}>
       <div className="w-full max-w-md space-y-8 text-center">
         <div className="space-y-4">
           <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full border-2 border-foreground">
@@ -137,6 +139,7 @@ function Splash() {
         <div className="space-y-6">
           <div className="text-lg font-medium">{statusText}</div>
 
+          {/* Progress bar */}
           <div className="space-y-2">
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
@@ -147,33 +150,60 @@ function Splash() {
             <div className="text-sm text-muted-foreground">{progress}%</div>
           </div>
 
-          <div className="space-y-3">
-            {checks.map((check, index) => (
-              <div
-                key={index}
-                className="flex items-center gap-3 rounded-md border bg-card p-3 text-left"
-              >
-                <div
-                  className={
-                    check.status === 'checking'
-                      ? 'text-muted-foreground'
-                      : check.status === 'success'
-                      ? 'text-foreground'
-                      : check.status === 'error'
-                      ? 'text-destructive'
-                      : 'text-muted-foreground'
-                  }
-                >
-                  {getIconForStatus(check.status)}
-                </div>
-                <div className="flex-1">
-                  <div className="font-medium">{check.name}</div>
-                  {check.message && (
-                    <div className="text-xs text-muted-foreground">{check.message}</div>
-                  )}
-                </div>
+          {/* Collapsible checks section */}
+          <div className="overflow-hidden rounded-md border bg-card transition-all duration-300 ease-in-out">
+            <button
+              type="button"
+              onClick={() => setExpandChecks(!expandChecks)}
+              className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-muted/50 focus:outline-none"
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-medium">System Checks</span>
+                <Badge variant="outline" className="ml-2">
+                  {checks.length}
+                </Badge>
               </div>
-            ))}
+              {expandChecks ? (
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
+            </button>
+            
+            <div
+              className={`transition-all duration-300 ease-in-out ${
+                expandChecks ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
+              }`}
+            >
+              <div className="border-t p-4">
+                {checks.map((check, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-3 rounded-md border bg-card p-3 text-left mb-2 last:mb-0"
+                  >
+                    <div
+                      className={
+                        check.status === 'checking'
+                          ? 'text-muted-foreground'
+                          : check.status === 'success'
+                          ? 'text-foreground'
+                          : check.status === 'error'
+                          ? 'text-destructive'
+                          : 'text-muted-foreground'
+                      }
+                    >
+                      {getIconForStatus(check.status)}
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-medium">{check.name}</div>
+                      {check.message && (
+                        <div className="text-xs text-muted-foreground">{check.message}</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           {error && (
