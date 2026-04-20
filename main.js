@@ -18,6 +18,7 @@ const {
 
 // Import utils
 const { saveProfiles, loadProfiles, getProfilesFile } = require('./src/utils/utils');
+const systemKeychain = require('./src/modules/systemKeychain');
 
 // Global state
 let tray;
@@ -173,13 +174,13 @@ async function connectVPN(config) {
       if ((output.includes('Response:') || output.includes('Enter 2FA code') ||
            output.includes('verification code') || output.includes('Two-Factor Password') ||
            output.includes('one-time password')) && !waitingForPassword) {
-        handleTwoFactorPrompt(sudoProcess);
+        handleTwoFactorPrompt(sudoProcess, config.server);
       }
 
       // Handle second Password prompt for 2FA
       if (output.includes('Password') && !waitingForPassword && !waitingForTwoFactorPin) {
         sendLog('[INFO] Second Password prompt detected (likely 2FA)', 'info');
-        handleTwoFactorPrompt(sudoProcess);
+        handleTwoFactorPrompt(sudoProcess, config.server);
       }
 
       if (output.includes('CONNECTED') || output.includes('Established') || output.includes('Configured as')) {
@@ -212,12 +213,12 @@ async function connectVPN(config) {
       if ((output.includes('Response:') || output.includes('Enter 2FA code') ||
            output.includes('verification code') || output.includes('Two-Factor Password') ||
            output.includes('one-time password')) && !waitingForPassword) {
-        handleTwoFactorPrompt(sudoProcess);
+        handleTwoFactorPrompt(sudoProcess, config.server);
       }
 
       if (output.includes('Password') && !waitingForPassword && !waitingForTwoFactorPin) {
         sendLog('[INFO] Second Password prompt on stderr (likely 2FA)', 'info');
-        handleTwoFactorPrompt(sudoProcess);
+        handleTwoFactorPrompt(sudoProcess, config.server);
       }
 
       if (output.includes('authentication failed') || output.includes('Login failed')) {
@@ -268,10 +269,27 @@ async function connectVPN(config) {
 }
 
 // Handle 2FA prompts
-function handleTwoFactorPrompt(sudoProcess) {
+function handleTwoFactorPrompt(sudoProcess, profileName = null) {
   waitingForTwoFactorPin = true;
 
-  promptForTwoFactorPin().then((pin) => {
+  // Try to get 2FA code from keychain if profile name is provided
+  const tryLoadFromKeychain = async () => {
+    if (!profileName) return null;
+
+    const { getTwoFactorCode } = require('./src/modules/systemKeychain');
+    const result = await getTwoFactorCode(profileName);
+    
+    if (result.success) {
+      sendLog(`[DEBUG] 2FA code loaded from keychain for profile "${profileName}"`, 'info');
+      return result.code;
+    }
+    
+    return null;
+  };
+
+  const promptAndSend = async () => {
+    const pin = await tryLoadFromKeychain() || await promptForTwoFactorPin(profileName);
+
     if (openconnectProcess && !waitingForTwoFactorPin) {
       return;
     }
@@ -285,14 +303,16 @@ function handleTwoFactorPrompt(sudoProcess) {
       waitingForTwoFactorPin = false;
       disconnectVPN();
     }
-  }).catch((error) => {
+  };
+
+  promptAndSend().catch((error) => {
     sendLog(`[ERROR] Error prompting for 2FA PIN: ${error.message}`, 'error');
     waitingForTwoFactorPin = false;
   });
 }
 
 // Prompt for 2FA PIN
-async function promptForTwoFactorPin() {
+async function promptForTwoFactorPin(profileName = null) {
   return new Promise((resolve) => {
     const { BrowserWindow } = require('electron');
     sendLog('[DEBUG] Creating 2FA PIN prompt window...', 'info');
@@ -313,6 +333,13 @@ async function promptForTwoFactorPin() {
     });
 
     const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+    // Set profile name in window object for TwoFactorPrompt
+    if (profileName) {
+      promptWindow.webContents.executeJavaScript(`
+        window.twoFactorProfileName = '${profileName.replace(/'/g, "\\'")}';
+      `).catch(() => {});
+    }
 
     if (isDev) {
       promptWindow.loadURL('http://localhost:5173/pages/two-factor-prompt.html');
@@ -410,6 +437,35 @@ ipcMain.handle('is-first-start', async () => {
 ipcMain.handle('mark-setup-complete', async () => {
   markSetupComplete();
   return { success: true };
+});
+
+// Keychain IPC handlers
+ipcMain.handle('is-keychain-available', async () => {
+  return systemKeychain.isKeychainAvailable();
+});
+
+ipcMain.handle('save-credentials', async (event, profileName, username, password) => {
+  return systemKeychain.saveCredentials(profileName, username, password);
+});
+
+ipcMain.handle('get-credentials', async (event, profileName) => {
+  return systemKeychain.getCredentials(profileName);
+});
+
+ipcMain.handle('delete-credentials', async (event, profileName) => {
+  return systemKeychain.deleteCredentials(profileName);
+});
+
+ipcMain.handle('save-two-factor-code', async (event, profileName, code) => {
+  return systemKeychain.saveTwoFactorCode(profileName, code);
+});
+
+ipcMain.handle('get-two-factor-code', async (event, profileName) => {
+  return systemKeychain.getTwoFactorCode(profileName);
+});
+
+ipcMain.handle('delete-two-factor-code', async (event, profileName) => {
+  return systemKeychain.deleteTwoFactorCode(profileName);
 });
 
 // Handle splash screen completion and show main window

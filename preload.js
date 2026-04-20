@@ -13,6 +13,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveProfiles: (profiles) => ipcRenderer.invoke('save-profiles', profiles),
   loadProfiles: () => ipcRenderer.invoke('load-profiles'),
 
+  // Keychain methods
+  isKeychainAvailable: () => ipcRenderer.invoke('is-keychain-available'),
+  saveCredentials: (profileName, username, password) => ipcRenderer.invoke('save-credentials', profileName, username, password),
+  getCredentials: (profileName) => ipcRenderer.invoke('get-credentials', profileName),
+  deleteCredentials: (profileName) => ipcRenderer.invoke('delete-credentials', profileName),
+  saveTwoFactorCode: (profileName, code) => ipcRenderer.invoke('save-two-factor-code', profileName, code),
+  getTwoFactorCode: (profileName) => ipcRenderer.invoke('get-two-factor-code', profileName),
+  deleteTwoFactorCode: (profileName) => ipcRenderer.invoke('delete-two-factor-code', profileName),
+
   // Process management
   checkRunningProcesses: () => ipcRenderer.invoke('check-running-processes'),
   killProcess: (pid, sudoPassword) => ipcRenderer.invoke('kill-process', pid, sudoPassword),

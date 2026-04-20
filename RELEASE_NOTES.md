@@ -64,7 +64,8 @@ Then launch the app normally.
 - ✅ Sudo-authenticated privileged operations
 - ✅ Context isolation for renderer process
 - ✅ Safe command execution using spawn with argument arrays
-- ⚠️ Passwords stored in plaintext JSON locally (consider using macOS Keychain)
+- 🔐 **System Keychain Integration** - Secure password and 2FA code storage using macOS Keychain, Windows Credential Manager, or Linux secret-service
+- ✅ Passwords encrypted with system keychain (optional)
 
 ## 📸 Screenshots
 
@@ -74,7 +75,6 @@ See [README](https://github.com/jadedm/openconnect-gui#screenshots) for screensh
 
 - App is unsigned (requires manual security bypass on first launch)
 - Intel Mac build not included in this release
-- Password storage uses plaintext JSON (macOS Keychain integration planned)
 
 ## 📝 Full Changelog
 
@@ -94,10 +94,19 @@ See [README](https://github.com/jadedm/openconnect-gui#screenshots) for screensh
 - Footer with version number
 - Screenshots in documentation
 
+### Added (New Features)
+- 🔐 **System Keychain Integration** - Secure password storage using macOS Keychain, Windows Credential Manager, or Linux secret-service
+- 🔐 **Automatic 2FA Code Loading** - Automatically load 2FA codes from system keychain for each profile
+- 🔐 **Save 2FA Codes** - Save 2FA codes to system keychain for automatic reuse
+- 🔐 **Keychain Toggle in Connection Form** - Choose whether to store passwords in keychain
+- 🔐 **Keychain UI Status Indicators** - Visual indicators showing password source (keychain vs manual)
+- 🔐 **Profile-Specific 2FA Prompt** - 2FA dialog now supports keychain storage with profile-specific codes
+
 ### Security
 - Command injection prevention for PID, routes, and connectivity tests
 - Input validation for all system commands
 - Safe command execution patterns
+- Password encryption with system keychain (optional)
 
 ---
 

@@ -230,13 +230,15 @@ The application features a clean tab-based interface:
 2. Enter a **Profile Name**
 3. Click **Save Profile**
 
-**⚠️ Security Warning:** Passwords are stored in plaintext in a local JSON file. For better security, leave the password field empty in saved profiles and enter it manually each time you connect.
+**Security Note:** Passwords can be securely stored in your system keychain (macOS Keychain, Windows Credential Manager, or Linux secret-service) instead of plaintext JSON. When you save a profile with a password, the app will store it in your system's secure keychain and only save a reference to it locally. The password field will appear empty in saved profiles when using keychain.
 
 ### Using Saved Profiles
 
 1. Select a profile from the dropdown menu
-2. The form will auto-fill with saved credentials
+2. If using keychain, the password will be automatically loaded from your system keychain
 3. Click **Connect**
+
+**Note:** If you need to update credentials, re-enter the password and click Save Profile to update it in both the local file and system keychain.
 
 ### Deleting Profiles
 
@@ -412,7 +414,7 @@ openconnect-gui/
 6. Route deleted via `sudo route delete <destination>`
 7. Diagnostics automatically refresh to show updated routes
 
-### Security Considerations
+## Security Considerations
 
 - ✅ **Context Isolation** - Renderer can't access Node.js directly
 - ✅ **IPC Whitelisting** - Only approved APIs exposed
@@ -421,7 +423,8 @@ openconnect-gui/
 - ✅ **Sudo Authentication** - Passwords passed securely via stdin, user prompted each time
 - ✅ **Proper PTY** - Expect script prevents credential leakage in logs
 - ✅ **Safe Command Execution** - Uses `spawn()` with argument arrays instead of shell string interpolation
-- ⚠️ **Password Storage** - Stored in plaintext JSON (consider macOS Keychain for production)
+- 🔐 **System Keychain Integration** - Secure password and 2FA code storage using macOS Keychain, Windows Credential Manager, or Linux secret-service
+- ✅ **Optional Password Encryption** - Choose whether to store passwords in system keychain
 
 ## Troubleshooting
 
@@ -569,7 +572,7 @@ Application logs from the main process are visible in the terminal where you ran
 
 ### Security
 
-- [ ] macOS Keychain integration for secure password storage
+- [x] macOS Keychain integration for secure password storage
 - [ ] Certificate-based authentication support
 - [ ] Multi-factor authentication (MFA/2FA) support
 - [ ] Import/export profiles (encrypted)

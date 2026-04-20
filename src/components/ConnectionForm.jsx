@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Trash2, Settings } from 'lucide-react';
+import { Trash2, Settings, Key, Lock, User } from 'lucide-react';
 
 function ConnectionForm({
   profiles,
@@ -27,6 +27,24 @@ function ConnectionForm({
     serverCert: ''
   });
   const [selectedProfile, setSelectedProfile] = useState('__new__');
+  const [useKeychain, setUseKeychain] = useState(false);
+  const [keychainStatus, setKeychainStatus] = useState(null); // 'available', 'not_available', 'empty'
+  const [loadingKeychain, setLoadingKeychain] = useState(false);
+  
+  // Check if keychain is available on mount
+  useEffect(() => {
+    const checkKeychain = async () => {
+      try {
+        const { isKeychainAvailable } = window.electronAPI;
+        const available = await isKeychainAvailable();
+        setUseKeychain(available);
+      } catch (e) {
+        console.log('[ConnectionForm] Keychain check failed:', e.message);
+      }
+    };
+    
+    checkKeychain();
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -38,7 +56,7 @@ function ConnectionForm({
     }
   };
 
-  const handleProfileSelect = (profileName) => {
+  const handleProfileSelect = async (profileName) => {
     setSelectedProfile(profileName);
 
     if (!profileName || profileName === '__new__') {
@@ -61,15 +79,64 @@ function ConnectionForm({
 
     const profile = profiles.find(p => p.name === profileName);
     if (profile) {
-      setFormData({
-        profileName: profile.name,
-        serverUrl: profile.server,
-        username: profile.username,
-        password: profile.password,
-        authgroup: profile.authgroup || '',
-        protocol: profile.protocol || 'anyconnect',
-        serverCert: profile.serverCert || ''
-      });
+      // If using keychain, try to load credentials from there
+      const { getCredentials } = window.electronAPI;
+      
+      if (useKeychain && profile.password) {
+        setLoadingKeychain(true);
+        try {
+          const result = await getCredentials(profile.name);
+          if (result.success) {
+            setFormData({
+              profileName: profile.name,
+              serverUrl: profile.server,
+              username: result.username || '',
+              password: '',
+              authgroup: profile.authgroup || '',
+              protocol: profile.protocol || 'anyconnect',
+              serverCert: profile.serverCert || ''
+            });
+            addLog(`Loaded credentials from system keychain for "${profile.name}"`, 'info');
+          } else {
+            // Fall back to stored credentials
+            setFormData({
+              profileName: profile.name,
+              serverUrl: profile.server,
+              username: profile.username || '',
+              password: profile.password || '',
+              authgroup: profile.authgroup || '',
+              protocol: profile.protocol || 'anyconnect',
+              serverCert: profile.serverCert || ''
+            });
+          }
+        } catch (e) {
+          console.error('Error loading from keychain:', e.message);
+          // Fall back to stored credentials
+          setFormData({
+            profileName: profile.name,
+            serverUrl: profile.server,
+            username: profile.username || '',
+            password: profile.password || '',
+            authgroup: profile.authgroup || '',
+            protocol: profile.protocol || 'anyconnect',
+            serverCert: profile.serverCert || ''
+          });
+        } finally {
+          setLoadingKeychain(false);
+        }
+      } else {
+        // Use stored credentials (no keychain or keychain disabled)
+        setFormData({
+          profileName: profile.name,
+          serverUrl: profile.server,
+          username: profile.username || '',
+          password: profile.password || '',
+          authgroup: profile.authgroup || '',
+          protocol: profile.protocol || 'anyconnect',
+          serverCert: profile.serverCert || ''
+        });
+      }
+      
       if (onServerChange) {
         onServerChange(profile.server);
       }
@@ -77,8 +144,8 @@ function ConnectionForm({
   };
 
   const handleConnect = async () => {
-    if (!formData.serverUrl || !formData.username || !formData.password) {
-      showAlert('Please fill in all required fields', 'error');
+    if (!formData.serverUrl || !formData.username) {
+      showAlert('Please fill in server and username', 'error');
       return;
     }
 
@@ -93,6 +160,25 @@ function ConnectionForm({
       protocol: formData.protocol || 'anyconnect',
       serverCert: formData.serverCert?.trim() || undefined
     };
+
+    // If using keychain and password is empty, load it from keychain
+    if (useKeychain && !formData.password) {
+      const { getCredentials } = window.electronAPI;
+      const result = await getCredentials(selectedProfile);
+      
+      if (result.success) {
+        config.password = result.password;
+        addLog('Loaded password from system keychain', 'info');
+      } else if (!formData.password) {
+        showAlert(`Failed to load password from keychain: ${result.error}`, 'error');
+        addLog(`Failed to load password from keychain: ${result.error}`, 'error');
+        return;
+      }
+    } else if (!formData.password) {
+      showAlert('Password is required', 'error');
+      addLog('Connection failed: Password is required', 'error');
+      return;
+    }
 
     const result = await window.electronAPI.connectVPN(config);
 
@@ -134,6 +220,22 @@ function ConnectionForm({
       serverCert: formData.serverCert || ''
     };
 
+    // Save credentials to keychain if available
+    let saveToKeychain = false;
+    
+    if (useKeychain && formData.password) {
+      const { saveCredentials } = window.electronAPI;
+      const result = await saveCredentials(formData.profileName, formData.username, formData.password);
+      
+      if (result.success) {
+        saveToKeychain = true;
+        addLog(`Saved credentials to system keychain for "${formData.profileName}"`, 'info');
+      } else {
+        showAlert(`Failed to save to keychain: ${result.error}. Saving without encryption.`, 'warning');
+        addLog(`Keychain save failed: ${result.error}. Fallback to plaintext.`, 'warning');
+      }
+    }
+
     const existingIndex = profiles.findIndex(p => p.name === formData.profileName);
     let newProfiles;
 
@@ -141,22 +243,46 @@ function ConnectionForm({
       // Update existing
       newProfiles = [...profiles];
       newProfiles[existingIndex] = profile;
+      
+      if (saveToKeychain && useKeychain) {
+        // Remove password from stored profile since it's in keychain
+        newProfiles[existingIndex] = { ...profile, password: '' };
+      }
+      
       showAlert(`Profile "${formData.profileName}" updated`, 'success');
     } else {
       // Add new
       newProfiles = [...profiles, profile];
+      
+      if (saveToKeychain && useKeychain) {
+        // Remove password from stored profile since it's in keychain
+        newProfiles[newProfiles.length - 1] = { ...profile, password: '' };
+      }
+      
       showAlert(`Profile "${formData.profileName}" saved`, 'success');
     }
 
     setProfiles(newProfiles);
     await saveProfiles(newProfiles);
-    addLog(`Profile "${formData.profileName}" saved`, 'info');
+    
+    if (saveToKeychain && useKeychain) {
+      addLog(`Profile "${formData.profileName}" saved - credentials in system keychain`, 'success');
+    } else {
+      addLog(`Profile "${formData.profileName}" saved`, 'info');
+    }
   };
 
   const handleDeleteProfile = async () => {
     if (!selectedProfile) return;
 
     if (window.confirm(`Delete profile "${selectedProfile}"?`)) {
+      // Delete from keychain if using it
+      if (useKeychain) {
+        const { deleteCredentials } = window.electronAPI;
+        await deleteCredentials(selectedProfile);
+        addLog(`Deleted credentials from system keychain for "${selectedProfile}"`, 'info');
+      }
+
       const newProfiles = profiles.filter(p => p.name !== selectedProfile);
       setProfiles(newProfiles);
       await saveProfiles(newProfiles);
@@ -262,16 +388,56 @@ function ConnectionForm({
 
           <div className="space-y-2">
             <Label htmlFor="password">Password *</Label>
-            <Input
-              type="password"
-              id="password"
-              name="password"
-              placeholder="password"
-              required
-              value={formData.password}
-              onChange={handleInputChange}
-            />
-            <p className="text-xs text-muted-foreground">⚠️ Warning: Password is stored in plaintext locally</p>
+            {useKeychain ? (
+              <div className="flex items-center gap-2">
+                <Input
+                  type="password"
+                  id="password"
+                  name="password"
+                  placeholder="Enter password manually or leave empty to use keychain"
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  disabled={!useKeychain && !formData.password}
+                />
+                {loadingKeychain ? (
+                  <div className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Lock className="h-3 w-3 animate-spin" />
+                    Loading from keychain...
+                  </div>
+                ) : formData.password ? (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Key className="h-3 w-3" />
+                    Password entered manually
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Lock className="h-3 w-3" />
+                    Loading from system keychain...
+                  </span>
+                )}
+              </div>
+            ) : (
+              <Input
+                type="password"
+                id="password"
+                name="password"
+                placeholder="password"
+                required
+                value={formData.password}
+                onChange={handleInputChange}
+              />
+            )}
+            {useKeychain ? (
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Lock className="h-3 w-3" />
+                Password securely stored in system keychain
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Lock className="h-3 w-3" />
+                Password is stored in plaintext locally
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">

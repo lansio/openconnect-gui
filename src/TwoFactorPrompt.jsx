@@ -3,14 +3,23 @@ import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
-import { Shield } from 'lucide-react';
+import { Shield, Key } from 'lucide-react';
 
-function TwoFactorPrompt({ onComplete }) {
+function TwoFactorPrompt({ onComplete, profileName }) {
   const [pin, setPin] = useState('');
+  const [saveToKeychain, setSaveToKeychain] = useState(false);
+  const [keychainSupported, setKeychainSupported] = useState(true);
   const { ipcRenderer } = window.require('electron');
 
+  // Check if keychain is supported
   useEffect(() => {
-    // Auto-focus input on mount
+    ipcRenderer.invoke('is-keychain-available').then((supported) => {
+      setKeychainSupported(supported);
+    });
+  }, []);
+
+  // Auto-focus input on mount
+  useEffect(() => {
     const input = document.getElementById('pin');
     if (input) {
       input.focus();
@@ -19,6 +28,20 @@ function TwoFactorPrompt({ onComplete }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    // Save to keychain if enabled
+    if (saveToKeychain && keychainSupported) {
+      // Save 2FA code with the profile name (server URL)
+      const twoFactorProfileName = profileName || 'current';
+      ipcRenderer.invoke('save-two-factor-code', twoFactorProfileName, pin).then((result) => {
+        if (result.success) {
+          console.log('2FA code saved to keychain for profile:', twoFactorProfileName);
+        } else {
+          console.error('Failed to save 2FA code to keychain:', result.error);
+        }
+      });
+    }
+
     ipcRenderer.send('two-factor-pin-entered', pin);
   };
 
@@ -58,6 +81,24 @@ function TwoFactorPrompt({ onComplete }) {
                 autoFocus
               />
             </div>
+
+            {/* Save to keychain option */}
+            {keychainSupported && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="saveToKeychain"
+                  checked={saveToKeychain}
+                  onChange={(e) => setSaveToKeychain(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                />
+                <Label htmlFor="saveToKeychain" className="flex items-center gap-1 cursor-pointer">
+                  <Key className="h-3 w-3" />
+                  Save to system keychain for next time
+                </Label>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={handleCancel}>
                 Cancel

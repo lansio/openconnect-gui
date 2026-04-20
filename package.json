@@ -1,6 +1,6 @@
 {
   "name": "openconnect-gui",
-  "version": "1.0.0",
+  "version": "1.6.0",
   "description": "OpenConnect VPN GUI application for macOS",
   "main": "main.js",
   "scripts": {
@@ -28,6 +28,9 @@
     "@radix-ui/react-slot": "^1.0.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
+    "electron-store": "^11.0.2",
+    "keychain": "^1.5.0",
+    "keytar": "^7.9.0",
     "lucide-react": "^0.309.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
