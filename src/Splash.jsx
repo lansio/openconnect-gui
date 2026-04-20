@@ -59,11 +59,17 @@ function Splash() {
       setStatusText('System checks completed successfully!');
       setProgress(100);
 
-      // Check if first start and show sudoers notice
+      // Check if setup is already complete (skip checks)
       const { ipcRenderer: ipcr } = window.require('electron');
-      const isStart = await ipcr.invoke('is-first-start');
-      console.log('[Splash] First start:', isStart);
-      if (isStart) {
+      const isSetupComplete = await ipcr.invoke('is-first-start').then(val => !val);
+      console.log('[Splash] Setup complete:', isSetupComplete);
+      
+      if (isSetupComplete) {
+        // Setup already done, go directly to main window
+        console.log('[Splash] Direct transition to main window...');
+        ipcr.send('splash-ready');
+      } else {
+        // First time setup, show sudoers notice
         setShowSudoersNotice(true);
       }
     });
@@ -93,7 +99,7 @@ function Splash() {
       console.log('[Splash] Marking setup as complete...');
       const result = await ipcRenderer.invoke('mark-setup-complete');
       console.log('[Splash] Mark setup complete result:', result);
-      console.log('[Splash] Sending splash-ready event...');
+      // Notify main to create and show window
       ipcRenderer.send('splash-ready');
       console.log('[Splash] Event sent, waiting for main window...');
     } catch (error) {
@@ -106,6 +112,8 @@ function Splash() {
     // Mark setup as complete
     const { ipcRenderer } = window.require('electron');
     await ipcRenderer.invoke('mark-setup-complete');
+    // Notify main to create and show window
+    ipcRenderer.send('splash-ready');
   };
 
   const getIconForStatus = (status) => {

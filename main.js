@@ -524,6 +524,50 @@ ipcMain.on('splash-loaded', async () => {
       return;
     }
 
+    // Check if setup is already complete
+    const isSetupComplete = checkSetupComplete();
+    
+    if (isSetupComplete) {
+      // Setup already complete, skip checks and go directly to main window
+      console.log('Setup already complete, skipping system checks');
+      
+      // Notify splash that it's ready to close
+      if (splashWin && !splashWin.isDestroyed()) {
+        splashWin.webContents.send('splash-complete');
+      }
+      
+      // Create and show main window after a short delay
+      setTimeout(() => {
+        if (splashWin && !splashWin.isDestroyed()) {
+          splashWin.close();
+        }
+        
+        console.log('[main] Creating main window (setup complete, skipping checks)...');
+        const newMainWindow = createMainWindow();
+        mainWindow = newMainWindow;
+        
+        console.log('[main] mainWindow after assign:', !!mainWindow);
+        
+        try {
+          createTray();
+        } catch (e) {
+          console.log('[main] Error in createTray:', e.message);
+        }
+        
+        // Show main window
+        console.log('[main] Attempting to show main window, isDestroyed:', mainWindow?.isDestroyed());
+        if (mainWindow) {
+          console.log('[main] Showing main window');
+          mainWindow.show();
+        } else {
+          console.log('[main] mainWindow is null or destroyed');
+        }
+      }, 500);
+      
+      return;
+    }
+    
+    // Run system checks for first-time setup
     const result = await performSystemChecks(splashWin);
 
     if (!result.success) {
