@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 
 // Import modules
-const { createSplashWindow, createMainWindow, createInstallerWindow } = require('./src/modules/windowManager');
+const { createSplashWindow, createMainWindow, createInstallerWindow, getSplashWindow } = require('./src/modules/windowManager');
 const {
   checkOpenConnect,
   checkSudoAccess,
@@ -374,6 +374,11 @@ function disconnectVPN() {
 // IPC Handlers
 const { ipcMain } = require('electron');
 
+console.log('[main] Registering IPC handlers...');
+
+// Attach ipcMain before any handlers to ensure it's ready
+const { BrowserWindow } = require('electron');
+
 ipcMain.handle('connect-vpn', async (event, config) => {
   return connectVPN(config);
 });
@@ -407,27 +412,65 @@ ipcMain.handle('mark-setup-complete', async () => {
   return { success: true };
 });
 
-// App lifecycle
-app.whenReady().then(async () => {
-  createSplashWindow();
+// Handle splash screen completion and show main window
+ipcMain.on('splash-ready', (event, ...args) => {
+  console.log('[main] [IPC CATCH-ALL] splash-ready event received from', event.sender.id, 'args:', args);
+  console.log('[main] current mainWindow before create:', !!mainWindow);
 
-  // Perform system checks
-  const splashWin = require('./src/modules/windowManager').getSplashWindow();
-  const result = await performSystemChecks(splashWin);
-
-  if (result.success) {
-    createMainWindow();
+  // System checks passed, create and show main window
+  console.log('[main] Creating new main window...');
+  const newMainWindow = createMainWindow();
+  mainWindow = newMainWindow;
+  
+  console.log('[main] mainWindow after assign:', !!mainWindow);
+  
+  try {
     createTray();
-
-    // Show sudoers notice on first start
-    if (result.isFirstStart && mainWindow) {
-      setTimeout(() => {
-        showSudoersNotice();
-      }, 1000);
-    }
-  } else {
-    app.quit();
+  } catch (e) {
+    console.log('[main] Error in createTray:', e.message);
   }
+
+  // Close splash after a short delay
+  setTimeout(() => {
+    if (getSplashWindow()) {
+      getSplashWindow().close();
+    }
+  }, 300);
+
+  // Show main window
+  console.log('[main] Attempting to show main window, isDestroyed:', mainWindow?.isDestroyed());
+  if (mainWindow) {
+    console.log('[main] Showing main window');
+    mainWindow.show();
+  } else {
+    console.log('[main] mainWindow is null or destroyed');
+  }
+});
+
+// App lifecycle
+app.whenReady().then(() => {
+  createSplashWindow();
+});
+
+// Handle splash screen loaded and start system checks
+ipcMain.on('splash-loaded', async () => {
+  // Get splash window once before setTimeout to avoid destroyed object error
+  const splashWin = getSplashWindow();
+
+  // Wait a bit for splash to render, then start system checks
+  setTimeout(async () => {
+    if (!splashWin || splashWin.isDestroyed()) {
+      console.log('Splash window destroyed, skipping system checks');
+      return;
+    }
+
+    const result = await performSystemChecks(splashWin);
+
+    if (!result.success) {
+      // System checks failed, keep splash open
+      return;
+    }
+  }, 500);
 });
 
 app.on('window-all-closed', () => {

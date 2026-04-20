@@ -53,12 +53,14 @@ function Splash() {
     });
 
     ipcRenderer.on('splash-complete', async () => {
+      console.log('[Splash] splash-complete event received');
       setStatusText('System checks completed successfully!');
       setProgress(100);
-      
+
       // Check if first start and show sudoers notice
       const { ipcRenderer: ipcr } = window.require('electron');
       const isStart = await ipcr.invoke('is-first-start');
+      console.log('[Splash] First start:', isStart);
       if (isStart) {
         setShowSudoersNotice(true);
       }
@@ -83,11 +85,18 @@ function Splash() {
   };
 
   const handleLoginClick = async () => {
-    // Mark setup as complete if not done yet
-    const { ipcRenderer } = window.require('electron');
-    await ipcRenderer.invoke('mark-setup-complete');
-    // Notify main process that splash is ready
-    ipcRenderer.send('splash-ready');
+    console.log('[Splash] [BUTTON CLICK] handleLoginClick called');
+    try {
+      const { ipcRenderer } = window.require('electron');
+      console.log('[Splash] Marking setup as complete...');
+      const result = await ipcRenderer.invoke('mark-setup-complete');
+      console.log('[Splash] Mark setup complete result:', result);
+      console.log('[Splash] Sending splash-ready event...');
+      ipcRenderer.send('splash-ready');
+      console.log('[Splash] Event sent, waiting for main window...');
+    } catch (error) {
+      console.error('[Splash] Error in handleLoginClick:', error);
+    }
   };
 
   const handleSudoersDismiss = async () => {

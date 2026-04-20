@@ -24,7 +24,7 @@ function createSplashWindow() {
   if (isDev) {
     splashWindow.loadURL('http://localhost:5173/pages/splash.html');
   } else {
-    splashWindow.loadFile(path.join(__dirname, '..', 'dist', 'pages', 'splash.html'));
+    splashWindow.loadFile(path.join(__dirname, '..', '..', 'dist', 'pages', 'splash.html'));
   }
 
   splashWindow.center();
@@ -37,12 +37,17 @@ function createSplashWindow() {
 
 // Create main window
 function createMainWindow() {
-  mainWindow = new BrowserWindow({
+  const isDev = process.env.NODE_ENV === 'development' || !process.argv.includes('--production');
+  const preloadPath = isDev
+    ? path.join(__dirname, '..', '..', 'preload.js')
+    : path.join(__dirname, '..', '..', 'dist', 'preload.js');
+
+  const window = new BrowserWindow({
     width: 1400,
     height: 900,
     show: false, // Don't show immediately
     webPreferences: {
-      preload: path.join(__dirname, '..', 'preload.js'),
+      preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
     },
@@ -51,23 +56,29 @@ function createMainWindow() {
   });
 
   // Load the app - in dev mode, load from vite server; in production, load from dist
-  const isDev = process.env.NODE_ENV === 'development' || !process.argv.includes('--production');
-
   if (isDev) {
     // Development mode - load from Vite dev server
-    mainWindow.loadURL('http://localhost:5173/pages/index.html');
+    window.loadURL('http://localhost:5173/pages/index.html');
   } else {
     // Production mode - load from built files
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'pages', 'index.html'));
+    window.loadFile(path.join(__dirname, '..', '..', 'dist', 'pages', 'index.html'));
   }
 
   // Prevent window close, minimize to tray instead
-  mainWindow.on('close', (event) => {
+  window.on('close', (event) => {
     if (!process.argv.includes('--quit')) {
       event.preventDefault();
-      mainWindow.hide();
+      window.hide();
     }
   });
+
+  // Show the window when ready
+  window.once('ready-to-show', () => {
+    console.log('[windowManager] Window ready to show, showing...');
+    window.show();
+  });
+
+  return window;
 }
 
 // Create installer helper window
@@ -97,7 +108,7 @@ function createInstallerWindow() {
   if (isDev) {
     installerWindow.loadURL('http://localhost:5173/pages/installer-helper.html');
   } else {
-    installerWindow.loadFile(path.join(__dirname, '..', 'dist', 'pages', 'installer-helper.html'));
+    installerWindow.loadFile(path.join(__dirname, '..', '..', 'dist', 'pages', 'installer-helper.html'));
   }
 
   installerWindow.on('closed', () => {

@@ -125,6 +125,13 @@ function checkSetupComplete() {
   return fs.existsSync(getSetupCompleteFile());
 }
 
+// Helper function to safely send messages to splash window
+function sendToSplashWindow(splashWindow, channel, ...args) {
+  if (splashWindow && !splashWindow.isDestroyed() && splashWindow.webContents) {
+    splashWindow.webContents.send(channel, ...args);
+  }
+}
+
 // Perform system checks
 async function performSystemChecks(splashWindow) {
   let progress = 0;
@@ -132,26 +139,18 @@ async function performSystemChecks(splashWindow) {
   const updateProgress = () => {
     progress++;
     const percent = Math.round((progress / totalChecks) * 100);
-    if (splashWindow) {
-      splashWindow.webContents.send('splash-progress', percent);
-    }
+    sendToSplashWindow(splashWindow, 'splash-progress', percent);
   };
 
   try {
     // Check 1: Electron runtime
-    if (splashWindow) {
-      splashWindow.webContents.send('system-check-start', 'Application Runtime');
-    }
+    sendToSplashWindow(splashWindow, 'system-check-start', 'Application Runtime');
     await new Promise(resolve => setTimeout(resolve, 300));
-    if (splashWindow) {
-      splashWindow.webContents.send('system-check-complete', 'Application Runtime', true, `Electron v${process.versions.electron}`);
-    }
+    sendToSplashWindow(splashWindow, 'system-check-complete', 'Application Runtime', true, `Electron v${process.versions.electron}`);
     updateProgress();
 
     // Check 2: File system access
-    if (splashWindow) {
-      splashWindow.webContents.send('system-check-start', 'File System Access');
-    }
+    sendToSplashWindow(splashWindow, 'system-check-start', 'File System Access');
     await new Promise(resolve => setTimeout(resolve, 300));
     try {
       const { app } = require('electron');
@@ -159,34 +158,24 @@ async function performSystemChecks(splashWindow) {
       if (!fs.existsSync(userDataPath)) {
         fs.mkdirSync(userDataPath, { recursive: true });
       }
-      if (splashWindow) {
-        splashWindow.webContents.send('system-check-complete', 'File System Access', true, 'OK');
-      }
+      sendToSplashWindow(splashWindow, 'system-check-complete', 'File System Access', true, 'OK');
     } catch (error) {
-      if (splashWindow) {
-        splashWindow.webContents.send('system-check-complete', 'File System Access', false, error.message);
-      }
+      sendToSplashWindow(splashWindow, 'system-check-complete', 'File System Access', false, error.message);
     }
     updateProgress();
 
     // Check 3: OpenConnect installation
-    if (splashWindow) {
-      splashWindow.webContents.send('system-check-start', 'OpenConnect Binary');
-    }
+    sendToSplashWindow(splashWindow, 'system-check-start', 'OpenConnect Binary');
     await new Promise(resolve => setTimeout(resolve, 300));
     const openconnectCheck = await checkOpenConnect();
     if (openconnectCheck.installed) {
-      if (splashWindow) {
-        splashWindow.webContents.send('system-check-complete', 'OpenConnect Binary', true, openconnectCheck.path || 'Found');
-      }
+      sendToSplashWindow(splashWindow, 'system-check-complete', 'OpenConnect Binary', true, openconnectCheck.path || 'Found');
     } else {
-      if (splashWindow) {
-        splashWindow.webContents.send('system-check-complete', 'OpenConnect Binary', false, 'Not installed');
-        splashWindow.webContents.send('splash-error', {
-          message: 'OpenConnect is not installed. Install with: brew install openconnect',
-          action: 'install-openconnect'
-        });
-      }
+      sendToSplashWindow(splashWindow, 'system-check-complete', 'OpenConnect Binary', false, 'Not installed');
+      sendToSplashWindow(splashWindow, 'splash-error', {
+        message: 'OpenConnect is not installed. Install with: brew install openconnect',
+        action: 'install-openconnect'
+      });
       // Don't continue if OpenConnect is not found
       updateProgress();
       updateProgress();
@@ -197,59 +186,44 @@ async function performSystemChecks(splashWindow) {
     updateProgress();
 
     // Check 4: Sudo privileges
-    if (splashWindow) {
-      splashWindow.webContents.send('system-check-start', 'Sudo Privileges');
-    }
+    sendToSplashWindow(splashWindow, 'system-check-start', 'Sudo Privileges');
     await new Promise(resolve => setTimeout(resolve, 300));
     const sudoCheck = await checkSudoAccess();
     if (sudoCheck.available) {
-      if (splashWindow) {
-        splashWindow.webContents.send('system-check-complete', 'Sudo Privileges', true, 'User has sudo access');
-      }
+      sendToSplashWindow(splashWindow, 'system-check-complete', 'Sudo Privileges', true, 'User has sudo access');
     } else {
-      if (splashWindow) {
-        splashWindow.webContents.send('system-check-warning', 'Sudo Privileges', 'Sudo required - will prompt when connecting');
-      }
+      sendToSplashWindow(splashWindow, 'system-check-warning', 'Sudo Privileges', 'Sudo required - will prompt when connecting');
     }
     updateProgress();
 
     // Check 5: Network capabilities
-    if (splashWindow) {
-      splashWindow.webContents.send('system-check-start', 'Network Capabilities');
-    }
+    sendToSplashWindow(splashWindow, 'system-check-start', 'Network Capabilities');
     await new Promise(resolve => setTimeout(resolve, 300));
-    if (splashWindow) {
-      splashWindow.webContents.send('system-check-complete', 'Network Capabilities', true, 'Available');
-    }
+    sendToSplashWindow(splashWindow, 'system-check-complete', 'Network Capabilities', true, 'Available');
     updateProgress();
 
     // Check 6: Sudoers configuration (first start check)
-    if (splashWindow) {
-      splashWindow.webContents.send('system-check-start', 'Sudoers Configuration');
-    }
+    sendToSplashWindow(splashWindow, 'system-check-start', 'Sudoers Configuration');
     await new Promise(resolve => setTimeout(resolve, 300));
 
     const isFirstStart = !checkSetupComplete();
     if (isFirstStart) {
-      if (splashWindow) {
-        splashWindow.webContents.send('system-check-warning', 'Sudoers Configuration',
-          'One-time sudoers setup required for passwordless sudo with SUDO_ASKPASS');
-      }
+      sendToSplashWindow(splashWindow, 'system-check-warning', 'Sudoers Configuration',
+        'One-time sudoers setup required for passwordless sudo with SUDO_ASKPASS');
     } else {
-      if (splashWindow) {
-        splashWindow.webContents.send('system-check-complete', 'Sudoers Configuration', true, 'Already configured');
-      }
+      sendToSplashWindow(splashWindow, 'system-check-complete', 'Sudoers Configuration', true, 'Already configured');
     }
     updateProgress();
+
+    // All checks passed
+    sendToSplashWindow(splashWindow, 'splash-complete');
 
     return { success: true, isFirstStart };
   } catch (error) {
     console.error('System check error:', error);
-    if (splashWindow) {
-      splashWindow.webContents.send('splash-error', {
-        message: `System check failed: ${error.message}`
-      });
-    }
+    sendToSplashWindow(splashWindow, 'splash-error', {
+      message: `System check failed: ${error.message}`
+    });
     return { success: false };
   }
 }

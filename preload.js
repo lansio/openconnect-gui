@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isFirstStart: () => ipcRenderer.invoke('is-first-start'),
   markSetupComplete: () => ipcRenderer.invoke('mark-setup-complete'),
 
+  // Event sending
+  send: (channel, ...args) => ipcRenderer.send(channel, ...args),
+
   // Event listeners
   onStatusChanged: (callback) => {
     ipcRenderer.on('status-changed', (event, status) => callback(status));
