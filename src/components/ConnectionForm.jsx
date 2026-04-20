@@ -5,6 +5,7 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Trash2, Settings, Key, Lock, User } from 'lucide-react';
+import { Badge } from './ui/badge';
 
 function ConnectionForm({
   profiles,
@@ -30,7 +31,8 @@ function ConnectionForm({
   const [useKeychain, setUseKeychain] = useState(false);
   const [keychainStatus, setKeychainStatus] = useState(null); // 'available', 'not_available', 'empty'
   const [loadingKeychain, setLoadingKeychain] = useState(false);
-  
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+
   // Check if keychain is available on mount
   useEffect(() => {
     const checkKeychain = async () => {
@@ -42,7 +44,7 @@ function ConnectionForm({
         console.log('[ConnectionForm] Keychain check failed:', e.message);
       }
     };
-    
+
     checkKeychain();
   }, []);
 
@@ -58,6 +60,7 @@ function ConnectionForm({
 
   const handleProfileSelect = async (profileName) => {
     setSelectedProfile(profileName);
+    setIsEditingProfile(false); // Reset editing mode when changing profile
 
     if (!profileName || profileName === '__new__') {
       // Clear form
@@ -81,7 +84,7 @@ function ConnectionForm({
     if (profile) {
       // If using keychain, try to load credentials from there
       const { getCredentials } = window.electronAPI;
-      
+
       if (useKeychain && profile.password) {
         setLoadingKeychain(true);
         try {
@@ -136,11 +139,15 @@ function ConnectionForm({
           serverCert: profile.serverCert || ''
         });
       }
-      
+
       if (onServerChange) {
         onServerChange(profile.server);
       }
     }
+  };
+
+  const handleEditProfile = () => {
+    setIsEditingProfile(true);
   };
 
   const handleConnect = async () => {
@@ -308,6 +315,12 @@ function ConnectionForm({
   const isConnected = currentStatus === 'connected';
   const isDisconnected = currentStatus === 'disconnected';
 
+  // Check if selected profile has saved credentials
+  const hasSavedCredentials = profiles.find(p => p.name === selectedProfile)?.password || (useKeychain && !formData.password);
+
+  // Determine if form should be shown
+  const showForm = selectedProfile === '__new__' || isEditingProfile;
+
   return (
     <Card>
       <CardHeader>
@@ -346,169 +359,200 @@ function ConnectionForm({
           </div>
         </div>
 
-        {/* Connection Form */}
-        <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="profileName">Profile Name (optional)</Label>
-            <Input
-              type="text"
-              id="profileName"
-              name="profileName"
-              placeholder="My VPN Connection"
-              value={formData.profileName}
-              onChange={handleInputChange}
-            />
+        {/* Profile Info Card - Show when editing not active */}
+        {!showForm && selectedProfile !== '__new__' && (
+          <div className="rounded-md border bg-card p-4">
+            <h3 className="font-semibold">Selected Profile</h3>
+            <div className="mt-2 space-y-1 text-sm">
+              <p><span className="text-muted-foreground">Name:</span> {selectedProfile}</p>
+              <p><span className="text-muted-foreground">Server:</span> {profiles.find(p => p.name === selectedProfile)?.server}</p>
+              <p><span className="text-muted-foreground">Username:</span> {profiles.find(p => p.name === selectedProfile)?.username}</p>
+              <p className="flex items-center gap-2">
+                <span className="text-muted-foreground">Credentials:</span>
+                {useKeychain ? (
+                  <Badge variant="outline" className="text-xs">Saved in Keychain</Badge>
+                ) : (
+                  <span className="text-muted-foreground">Stored locally</span>
+                )}
+              </p>
+            </div>
+            <Button onClick={handleEditProfile} variant="outline" className="mt-3 w-full">
+              Edit Profile
+            </Button>
           </div>
+        )}
 
-          <div className="space-y-2">
-            <Label htmlFor="serverUrl">VPN Server URL *</Label>
-            <Input
-              type="text"
-              id="serverUrl"
-              name="serverUrl"
-              placeholder="vpn.example.com"
-              required
-              value={formData.serverUrl}
-              onChange={handleInputChange}
-            />
-          </div>
+        {/* Connection Form - Show only when creating new or editing */}
+        {showForm && (
+          <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
+            {selectedProfile !== '__new__' && (
+              <Button type="button" variant="ghost" onClick={() => setIsEditingProfile(false)} className="w-full">
+                <span className="mr-2">←</span> Back to Profile Info
+              </Button>
+            )}
 
-          <div className="space-y-2">
-            <Label htmlFor="username">Username *</Label>
-            <Input
-              type="text"
-              id="username"
-              name="username"
-              placeholder="username"
-              required
-              value={formData.username}
-              onChange={handleInputChange}
-            />
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="profileName">Profile Name (optional)</Label>
+              <Input
+                type="text"
+                id="profileName"
+                name="profileName"
+                placeholder="My VPN Connection"
+                value={formData.profileName}
+                onChange={handleInputChange}
+              />
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="password">Password *</Label>
-            {useKeychain ? (
-              <div className="flex items-center gap-2">
+            <div className="space-y-2">
+              <Label htmlFor="serverUrl">VPN Server URL *</Label>
+              <Input
+                type="text"
+                id="serverUrl"
+                name="serverUrl"
+                placeholder="vpn.example.com"
+                required
+                value={formData.serverUrl}
+                onChange={handleInputChange}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="username">Username *</Label>
+              <Input
+                type="text"
+                id="username"
+                name="username"
+                placeholder="username"
+                required
+                value={formData.username}
+                onChange={handleInputChange}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="password">Password *</Label>
+              {useKeychain ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="password"
+                    id="password"
+                    name="password"
+                    placeholder="Enter password manually or leave empty to use keychain"
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    disabled={!useKeychain && !formData.password}
+                  />
+                  {loadingKeychain ? (
+                    <div className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Lock className="h-3 w-3 animate-spin" />
+                      Loading from keychain...
+                    </div>
+                  ) : formData.password ? (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Key className="h-3 w-3" />
+                      Password entered manually
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Lock className="h-3 w-3" />
+                      Loading from system keychain...
+                    </span>
+                  )}
+                </div>
+              ) : (
                 <Input
                   type="password"
                   id="password"
                   name="password"
-                  placeholder="Enter password manually or leave empty to use keychain"
+                  placeholder="password"
+                  required
                   value={formData.password}
                   onChange={handleInputChange}
-                  disabled={!useKeychain && !formData.password}
                 />
-                {loadingKeychain ? (
-                  <div className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Lock className="h-3 w-3 animate-spin" />
-                    Loading from keychain...
-                  </div>
-                ) : formData.password ? (
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Key className="h-3 w-3" />
-                    Password entered manually
-                  </span>
-                ) : (
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Lock className="h-3 w-3" />
-                    Loading from system keychain...
-                  </span>
-                )}
-              </div>
-            ) : (
+              )}
+              {useKeychain ? (
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Lock className="h-3 w-3" />
+                  Password securely stored in system keychain
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Lock className="h-3 w-3" />
+                  Password is stored in plaintext locally
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="authgroup">Group/Authgroup (optional)</Label>
               <Input
-                type="password"
-                id="password"
-                name="password"
-                placeholder="password"
-                required
-                value={formData.password}
+                type="text"
+                id="authgroup"
+                name="authgroup"
+                placeholder="group-name"
+                value={formData.authgroup}
                 onChange={handleInputChange}
               />
-            )}
-            {useKeychain ? (
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Lock className="h-3 w-3" />
-                Password securely stored in system keychain
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Lock className="h-3 w-3" />
-                Password is stored in plaintext locally
-              </p>
-            )}
-          </div>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="authgroup">Group/Authgroup (optional)</Label>
-            <Input
-              type="text"
-              id="authgroup"
-              name="authgroup"
-              placeholder="group-name"
-              value={formData.authgroup}
-              onChange={handleInputChange}
-            />
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="protocol">Protocol</Label>
+              <Select value={formData.protocol} onValueChange={(value) => setFormData(prev => ({ ...prev, protocol: value }))}>
+                <SelectTrigger id="protocol">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="anyconnect">AnyConnect (Cisco)</SelectItem>
+                  <SelectItem value="nc">Juniper Network Connect</SelectItem>
+                  <SelectItem value="gp">GlobalProtect (Palo Alto)</SelectItem>
+                  <SelectItem value="pulse">Pulse Connect Secure</SelectItem>
+                  <SelectItem value="f5">F5 Big-IP</SelectItem>
+                  <SelectItem value="fortinet">Fortinet</SelectItem>
+                  <SelectItem value="array">Array Networks</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Select the VPN protocol your server uses</p>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="protocol">Protocol</Label>
-            <Select value={formData.protocol} onValueChange={(value) => setFormData(prev => ({ ...prev, protocol: value }))}>
-              <SelectTrigger id="protocol">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="anyconnect">AnyConnect (Cisco)</SelectItem>
-                <SelectItem value="nc">Juniper Network Connect</SelectItem>
-                <SelectItem value="gp">GlobalProtect (Palo Alto)</SelectItem>
-                <SelectItem value="pulse">Pulse Connect Secure</SelectItem>
-                <SelectItem value="f5">F5 Big-IP</SelectItem>
-                <SelectItem value="fortinet">Fortinet</SelectItem>
-                <SelectItem value="array">Array Networks</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">Select the VPN protocol your server uses</p>
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="serverCert">Server Certificate (optional)</Label>
+              <Input
+                type="text"
+                id="serverCert"
+                name="serverCert"
+                placeholder="pin-sha256:xxxxx..."
+                value={formData.serverCert}
+                onChange={handleInputChange}
+              />
+              <p className="text-xs text-muted-foreground">Example: pin-sha256:AAAA1111BBB2222CCC3333DDD4444EEE5555FFF6666=</p>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="serverCert">Server Certificate (optional)</Label>
-            <Input
-              type="text"
-              id="serverCert"
-              name="serverCert"
-              placeholder="pin-sha256:xxxxx..."
-              value={formData.serverCert}
-              onChange={handleInputChange}
-            />
-            <p className="text-xs text-muted-foreground">Example: pin-sha256:AAAA1111BBB2222CCC3333DDD4444EEE5555FFF6666=</p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              disabled={!openConnectInstalled || isConnected || isConnecting}
-              onClick={handleConnect}
-            >
-              Connect
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={!isConnected}
-              onClick={handleDisconnect}
-            >
-              Disconnect
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={handleSaveProfile}
-            >
-              Save Profile
-            </Button>
-          </div>
-        </form>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                disabled={!openConnectInstalled || isConnected || isConnecting}
+                onClick={handleConnect}
+              >
+                Connect
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={!isConnected}
+                onClick={handleDisconnect}
+              >
+                Disconnect
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleSaveProfile}
+              >
+                Save Profile
+              </Button>
+            </div>
+          </form>
+        )}
       </CardContent>
     </Card>
   );
