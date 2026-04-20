@@ -4,7 +4,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Trash2, Settings, Key, Lock, User } from 'lucide-react';
+import { Trash2, Settings, Key, Lock, User, CheckCircle2, Loader2 } from 'lucide-react';
 import { Badge } from './ui/badge';
 
 function ConnectionForm({
@@ -32,6 +32,8 @@ function ConnectionForm({
   const [keychainStatus, setKeychainStatus] = useState(null); // 'available', 'not_available', 'empty'
   const [loadingKeychain, setLoadingKeychain] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  // Persist last selected profile in component state for session
+  const [lastSelectedProfile, setLastSelectedProfile] = useState(null);
 
   // Check if keychain is available on mount
   useEffect(() => {
@@ -48,6 +50,25 @@ function ConnectionForm({
     checkKeychain();
   }, []);
 
+  // When profiles change, try to restore last selected profile
+  useEffect(() => {
+    if (profiles.length > 0 && !lastSelectedProfile) {
+      // Try to restore from localStorage
+      const savedLastProfile = window.localStorage?.getItem('openconnect_last_profile');
+      if (savedLastProfile && profiles.find(p => p.name === savedLastProfile)) {
+        setSelectedProfile(savedLastProfile);
+        setLastSelectedProfile(savedLastProfile);
+      } else if (profiles.length > 0) {
+        // Set to first available profile
+        setSelectedProfile(profiles[0].name);
+        setLastSelectedProfile(profiles[0].name);
+      }
+    } else if (profiles.length === 0 && selectedProfile !== '__new__') {
+      // No profiles, switch to new
+      setSelectedProfile('__new__');
+    }
+  }, [profiles.length]);
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -59,6 +80,11 @@ function ConnectionForm({
   };
 
   const handleProfileSelect = async (profileName) => {
+    // Save last selected profile to localStorage
+    if (profileName && profileName !== '__new__') {
+      window.localStorage?.setItem('openconnect_last_profile', profileName);
+    }
+
     setSelectedProfile(profileName);
     setIsEditingProfile(false); // Reset editing mode when changing profile
 
@@ -318,8 +344,13 @@ function ConnectionForm({
   // Check if selected profile has saved credentials
   const hasSavedCredentials = profiles.find(p => p.name === selectedProfile)?.password || (useKeychain && !formData.password);
 
-  // Determine if form should be shown
+  // Determine if form should be shown (edit mode or new profile)
   const showForm = selectedProfile === '__new__' || isEditingProfile;
+
+  // Get server URL for connection (from form if editing/new, from profile otherwise)
+  const connectionServerUrl = showForm ? formData.serverUrl : (profiles.find(p => p.name === selectedProfile)?.server || '');
+  const connectionUsername = showForm ? formData.username : (profiles.find(p => p.name === selectedProfile)?.username || '');
+  const connectionPassword = showForm ? formData.password : '';
 
   return (
     <Card>
@@ -339,12 +370,17 @@ function ConnectionForm({
                 <SelectValue placeholder="-- New Connection --" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__new__">-- New Connection --</SelectItem>
+                {profiles.length === 0 && (
+                  <SelectItem value="__new__">-- New Connection --</SelectItem>
+                )}
                 {profiles.map(profile => (
                   <SelectItem key={profile.name} value={profile.name}>
                     {profile.name}
                   </SelectItem>
                 ))}
+                {profiles.length > 0 && (
+                  <SelectItem value="__new__">-- New Connection --</SelectItem>
+                )}
               </SelectContent>
             </Select>
             <Button
@@ -355,6 +391,67 @@ function ConnectionForm({
               onClick={handleDeleteProfile}
             >
               <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Connection Status Area - Always visible */}
+        <div className="space-y-3 rounded-md border bg-card p-4">
+          {isConnected ? (
+            <div className="flex flex-col items-center justify-center py-4">
+              <CheckCircle2 className="h-10 w-10 text-green-600" />
+              <span className="mt-2 font-semibold text-lg">Connected</span>
+              <p className="text-sm text-muted-foreground">
+                {profiles.find(p => p.name === selectedProfile)?.server || connectionServerUrl}
+              </p>
+            </div>
+          ) : isConnecting ? (
+            <div className="flex flex-col items-center justify-center py-4">
+              <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+              <span className="mt-2 font-semibold">Connecting...</span>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-4">
+              <div className="rounded-full border-2 border-muted p-3">
+                <Shield className="h-10 w-10 text-muted-foreground" />
+              </div>
+              <span className="mt-2 font-semibold">Disconnected</span>
+              {profiles.find(p => p.name === selectedProfile) && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  Select a profile and click Connect
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Connection Buttons - Always visible at bottom */}
+          <div className="mt-4 flex gap-2">
+            {isConnected ? (
+              <Button
+                type="button"
+                variant="destructive"
+                className="flex-1"
+                disabled={!isConnected}
+                onClick={handleDisconnect}
+              >
+                Disconnect
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                className="flex-1"
+                disabled={!openConnectInstalled || isConnecting || !connectionServerUrl || !connectionUsername}
+                onClick={handleConnect}
+              >
+                {isConnecting ? 'Connecting...' : 'Connect'}
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleSaveProfile}
+            >
+              Save Profile
             </Button>
           </div>
         </div>
@@ -527,22 +624,7 @@ function ConnectionForm({
               <p className="text-xs text-muted-foreground">Example: pin-sha256:AAAA1111BBB2222CCC3333DDD4444EEE5555FFF6666=</p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                disabled={!openConnectInstalled || isConnected || isConnecting}
-                onClick={handleConnect}
-              >
-                Connect
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={!isConnected}
-                onClick={handleDisconnect}
-              >
-                Disconnect
-              </Button>
+            <div className="mt-4 flex gap-2">
               <Button
                 type="button"
                 variant="secondary"
