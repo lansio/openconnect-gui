@@ -4,7 +4,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Trash2, Settings, Key, Lock, User, CheckCircle2, Loader2 } from 'lucide-react';
+import { Trash2, Settings, Key, Lock, User, CheckCircle2, Loader2, Shield } from 'lucide-react';
 import { Badge } from './ui/badge';
 
 function ConnectionForm({
