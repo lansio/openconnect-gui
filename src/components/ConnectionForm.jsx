@@ -16,7 +16,8 @@ function ConnectionForm({
   addLog,
   saveProfiles,
   loadProfiles,
-  onServerChange
+  onServerChange,
+  activeConnections = []
 }) {
   const [formData, setFormData] = useState({
     profileName: '',
@@ -182,6 +183,16 @@ function ConnectionForm({
       return;
     }
 
+    // Проверить, есть ли уже активное подключение для этого профиля
+    if (selectedProfile !== '__new__') {
+      const existingConnection = activeConnections.find(c => c.profileName === selectedProfile);
+      if (existingConnection) {
+        showAlert(`Already connected to "${selectedProfile}". Disconnect first before connecting again.`, 'error');
+        addLog(`Connection failed: Already connected to "${selectedProfile}"`, 'error');
+        return;
+      }
+    }
+
     addLog('Attempting to connect...', 'info');
 
     const config = {
@@ -193,6 +204,13 @@ function ConnectionForm({
       protocol: formData.protocol || 'anyconnect',
       serverCert: formData.serverCert?.trim() || undefined
     };
+
+    // Если выбран профиль, передаем имя профиля для отслеживания подключений
+    if (selectedProfile && selectedProfile !== '__new__') {
+      config.profileName = selectedProfile;
+    } else if (formData.profileName) {
+      config.profileName = formData.profileName.trim();
+    }
 
     // If using keychain and password is empty, load it from keychain
     if (useKeychain && !formData.password) {
@@ -224,11 +242,26 @@ function ConnectionForm({
   };
 
   const handleDisconnect = async () => {
-    addLog('Disconnecting...', 'info');
-    const result = await window.electronAPI.disconnectVPN();
-
-    if (!result.success) {
-      showAlert(`Disconnect failed: ${result.error}`, 'error');
+    // Если выбран профиль, отключаем только его
+    if (selectedProfile && selectedProfile !== '__new__') {
+      addLog(`Disconnecting profile "${selectedProfile}"...`, 'info');
+      const result = await window.electronAPI.disconnectVPN({ profileName: selectedProfile });
+      
+      if (!result.success) {
+        showAlert(`Disconnect failed: ${result.error}`, 'error');
+      } else {
+        addLog(`Disconnected profile "${selectedProfile}"`, 'info');
+      }
+    } else {
+      // Если профиль не выбран, отключаем все подключения
+      addLog('Disconnecting all VPN connections...', 'info');
+      const result = await window.electronAPI.disconnectVPN();
+      
+      if (!result.success) {
+        showAlert(`Disconnect failed: ${result.error}`, 'error');
+      } else {
+        addLog('Disconnected all VPN connections', 'info');
+      }
     }
   };
 
@@ -341,8 +374,8 @@ function ConnectionForm({
   const isConnected = currentStatus === 'connected';
   const isDisconnected = currentStatus === 'disconnected';
 
-  // Check if selected profile has saved credentials
-  const hasSavedCredentials = profiles.find(p => p.name === selectedProfile)?.password || (useKeychain && !formData.password);
+  // Проверить, есть ли активное подключение для текущего профиля
+  const isActiveConnection = activeConnections.some(c => c.profileName === selectedProfile);
 
   // Determine if form should be shown (edit mode or new profile)
   const showForm = selectedProfile === '__new__' || isEditingProfile;
@@ -351,6 +384,15 @@ function ConnectionForm({
   const connectionServerUrl = showForm ? formData.serverUrl : (profiles.find(p => p.name === selectedProfile)?.server || '');
   const connectionUsername = showForm ? formData.username : (profiles.find(p => p.name === selectedProfile)?.username || '');
   const connectionPassword = showForm ? formData.password : '';
+
+  // Решаем, является ли соединение активным
+  // Приоритет: если есть специфичное подключение для профиля - оно активно
+  // Иначе используем глобальный статус
+  const isConnectedToSelectedProfile = isActiveConnection;
+  const isAnyConnected = currentStatus === 'connected';
+
+  // Если выбран профиль, отображаем статус конкретного подключения
+  const effectiveIsConnected = selectedProfile !== '__new__' && selectedProfile ? isConnectedToSelectedProfile : isAnyConnected;
 
   return (
     <Card>
@@ -397,12 +439,12 @@ function ConnectionForm({
 
         {/* Connection Status Area - Always visible */}
         <div className="space-y-3 rounded-md border bg-card p-4">
-          {isConnected ? (
+          {effectiveIsConnected ? (
             <div className="flex flex-col items-center justify-center py-4">
               <CheckCircle2 className="h-10 w-10 text-green-600" />
               <span className="mt-2 font-semibold text-lg">Connected</span>
               <p className="text-sm text-muted-foreground">
-                {profiles.find(p => p.name === selectedProfile)?.server || connectionServerUrl}
+                {selectedProfile !== '__new__' ? profiles.find(p => p.name === selectedProfile)?.server : (profiles.length > 0 ? profiles[0].server : connectionServerUrl)}
               </p>
             </div>
           ) : isConnecting ? (
@@ -418,7 +460,7 @@ function ConnectionForm({
               <span className="mt-2 font-semibold">Disconnected</span>
               {profiles.find(p => p.name === selectedProfile) && (
                 <p className="text-sm text-muted-foreground mt-1">
-                  Select a profile and click Connect
+                  {isActiveConnection ? `Profile "${selectedProfile}" is being connected...` : 'Select a profile and click Connect'}
                 </p>
               )}
             </div>
@@ -426,12 +468,12 @@ function ConnectionForm({
 
           {/* Connection Buttons - Always visible at bottom */}
           <div className="mt-4 flex gap-2">
-            {isConnected ? (
+            {effectiveIsConnected ? (
               <Button
                 type="button"
                 variant="destructive"
                 className="flex-1"
-                disabled={!isConnected}
+                disabled={!effectiveIsConnected}
                 onClick={handleDisconnect}
               >
                 Disconnect
@@ -440,10 +482,10 @@ function ConnectionForm({
               <Button
                 type="button"
                 className="flex-1"
-                disabled={!openConnectInstalled || isConnecting || !connectionServerUrl || !connectionUsername}
+                disabled={!openConnectInstalled || isConnecting || !connectionServerUrl || !connectionUsername || isActiveConnection}
                 onClick={handleConnect}
               >
-                {isConnecting ? 'Connecting...' : 'Connect'}
+                {isConnecting ? 'Connecting...' : (isActiveConnection ? 'Connecting...' : 'Connect')}
               </Button>
             )}
           </div>

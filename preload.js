@@ -5,8 +5,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   // VPN connection methods
   connectVPN: (config) => ipcRenderer.invoke('connect-vpn', config),
-  disconnectVPN: () => ipcRenderer.invoke('disconnect-vpn'),
+  disconnectVPN: (config) => ipcRenderer.invoke('disconnect-vpn', config),
   getStatus: () => ipcRenderer.invoke('get-status'),
+  getActiveConnections: () => ipcRenderer.invoke('get-active-connections'),
   checkOpenConnect: () => ipcRenderer.invoke('check-openconnect'),
 
   // Profile management methods
@@ -42,6 +43,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Event listeners
   onStatusChanged: (callback) => {
     ipcRenderer.on('status-changed', (event, status) => callback(status));
+  },
+  onActiveConnectionsChanged: (callback) => {
+    ipcRenderer.on('active-connections-changed', (event, connections) => callback(connections));
   },
   onLogMessage: (callback) => {
     ipcRenderer.on('log-message', (event, log) => callback(log));

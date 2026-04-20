@@ -22,7 +22,8 @@ const systemKeychain = require('./src/modules/systemKeychain');
 
 // Global state
 let tray;
-let openconnectProcess = null;
+// Хранилище активных подключений по профилям: key = profileName, value = process object
+let openconnectProcesses = {};
 let connectionStatus = 'disconnected';
 let mainWindow;
 
@@ -39,6 +40,23 @@ function updateStatus(status) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('status-changed', status);
   }
+  
+  // Send active connections to renderer
+  const activeConnections = getActiveConnections();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('active-connections-changed', activeConnections);
+  }
+}
+
+// Получить список активных подключений
+function getActiveConnections() {
+  const connections = [];
+  for (const [profileName, process] of Object.entries(openconnectProcesses)) {
+    if (process) {
+      connections.push({ profileName, server: process.serverUrl || 'Unknown' });
+    }
+  }
+  return connections;
 }
 
 // Send log to renderer
@@ -102,8 +120,12 @@ function updateTrayMenu() {
 
 // Handle VPN connection
 async function connectVPN(config) {
-  if (openconnectProcess) {
-    return { success: false, error: 'Already connected or connecting' };
+  // Получить имя профиля для проверки активных подключений
+  const profileName = config.profileName || 'default';
+  
+  // Проверить, есть ли уже активное подключение к этому серверу
+  if (openconnectProcesses[profileName]) {
+    return { success: false, error: `Already connected to "${profileName}"` };
   }
 
   try {
@@ -152,7 +174,14 @@ async function connectVPN(config) {
       })
     });
 
-    openconnectProcess = sudoProcess;
+    // Сохраняем информацию о процессе в хранилище по имени профиля
+    openconnectProcesses[profileName] = {
+      process: sudoProcess,
+      serverUrl: serverUrl,
+      profileName: profileName
+    };
+
+    sendLog(`[DEBUG] Process stored for profile "${profileName}"`, 'debug');
 
     // Handle stdout
     sudoProcess.stdout.on('data', (data) => {
@@ -178,13 +207,17 @@ async function connectVPN(config) {
       if ((output.includes('Response:') || output.includes('Enter 2FA code') ||
            output.includes('verification code') || output.includes('Two-Factor Password') ||
            output.includes('one-time password')) && !waitingForPassword) {
-        handleTwoFactorPrompt(sudoProcess, config.server);
+        // Используем profileName из хранилища вместо config.profileName
+        const processProfileName = openconnectProcesses[profileName]?.profileName || profileName;
+        sendLog(`[DEBUG] 2FA prompt detected for profile "${processProfileName}"`, 'info');
+        handleTwoFactorPrompt(sudoProcess, processProfileName);
       }
 
       // Handle second Password prompt for 2FA
       if (output.includes('Password') && !waitingForPassword && !waitingForTwoFactorPin) {
         sendLog('[INFO] Second Password prompt detected (likely 2FA)', 'info');
-        handleTwoFactorPrompt(sudoProcess, config.server);
+        const processProfileName = openconnectProcesses[profileName]?.profileName || profileName;
+        handleTwoFactorPrompt(sudoProcess, processProfileName);
       }
 
       if (output.includes('CONNECTED') || output.includes('Established') || output.includes('Configured as')) {
@@ -217,12 +250,15 @@ async function connectVPN(config) {
       if ((output.includes('Response:') || output.includes('Enter 2FA code') ||
            output.includes('verification code') || output.includes('Two-Factor Password') ||
            output.includes('one-time password')) && !waitingForPassword) {
-        handleTwoFactorPrompt(sudoProcess, config.server);
+        const processProfileName = openconnectProcesses[profileName]?.profileName || profileName;
+        sendLog(`[DEBUG] 2FA prompt on stderr for profile "${processProfileName}"`, 'info');
+        handleTwoFactorPrompt(sudoProcess, processProfileName);
       }
 
       if (output.includes('Password') && !waitingForPassword && !waitingForTwoFactorPin) {
         sendLog('[INFO] Second Password prompt on stderr (likely 2FA)', 'info');
-        handleTwoFactorPrompt(sudoProcess, config.server);
+        const processProfileName = openconnectProcesses[profileName]?.profileName || profileName;
+        handleTwoFactorPrompt(sudoProcess, processProfileName);
       }
 
       if (output.includes('authentication failed') || output.includes('Login failed')) {
@@ -239,8 +275,12 @@ async function connectVPN(config) {
       const exitTime = new Date().toLocaleTimeString();
       sendLog(`[DEBUG] OpenConnect process exited with code ${code} at ${exitTime}`);
 
-      openconnectProcess = null;
-      updateStatus('disconnected');
+      // Удалить процесс из хранилища по имени профиля
+      delete openconnectProcesses[profileName];
+      
+      // Обновить статус на основе оставшихся подключений
+      const activeConnections = Object.keys(openconnectProcesses).length;
+      updateStatus(activeConnections > 0 ? 'connected' : 'disconnected');
 
       if (code !== 0 && code !== null) {
         let errorMessage = `Connection closed with exit code ${code}`;
@@ -257,8 +297,12 @@ async function connectVPN(config) {
 
     sudoProcess.on('error', (error) => {
       sendLog(`Error: ${error.message}`, 'error');
-      openconnectProcess = null;
-      updateStatus('disconnected');
+      // Удалить процесс из хранилища по имени профиля
+      delete openconnectProcesses[profileName];
+      
+      // Обновить статус на основе оставшихся подключений
+      const activeConnections = Object.keys(openconnectProcesses).length;
+      updateStatus(activeConnections > 0 ? 'connected' : 'disconnected');
 
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('connection-error', error.message);
@@ -274,7 +318,19 @@ async function connectVPN(config) {
 
 // Handle 2FA prompts
 function handleTwoFactorPrompt(sudoProcess, profileName = null) {
-  waitingForTwoFactorPin = true;
+  // Проверяем, что процесс еще активен в хранилище
+  if (!profileName || !openconnectProcesses[profileName]) {
+    sendLog('[ERROR] handleTwoFactorPrompt: No active process for profile', 'error');
+    return;
+  }
+
+  // Проверяем, что это тот же процесс
+  if (openconnectProcesses[profileName].process !== sudoProcess) {
+    sendLog('[ERROR] handleTwoFactorPrompt: Process mismatch', 'error');
+    return;
+  }
+
+  const processEntry = openconnectProcesses[profileName];
 
   // Try to get 2FA code from keychain if profile name is provided
   const tryLoadFromKeychain = async () => {
@@ -282,36 +338,36 @@ function handleTwoFactorPrompt(sudoProcess, profileName = null) {
 
     const { getTwoFactorCode } = require('./src/modules/systemKeychain');
     const result = await getTwoFactorCode(profileName);
-    
+
     if (result.success) {
       sendLog(`[DEBUG] 2FA code loaded from keychain for profile "${profileName}"`, 'info');
       return result.code;
     }
-    
+
     return null;
   };
 
   const promptAndSend = async () => {
     const pin = await tryLoadFromKeychain() || await promptForTwoFactorPin(profileName);
 
-    if (openconnectProcess && !waitingForTwoFactorPin) {
+    // Проверяем, что процесс еще активен
+    if (!openconnectProcesses[profileName]) {
+      sendLog('[DEBUG] Process no longer active, skipping 2FA PIN', 'info');
       return;
     }
 
     if (pin !== null && pin !== undefined) {
       sendLog('[DEBUG] Sending 2FA PIN to openconnect process...', 'info');
       sudoProcess.stdin.write(pin + '\n');
-      waitingForTwoFactorPin = false;
     } else {
       sendLog('[INFO] 2FA prompt cancelled by user', 'info');
-      waitingForTwoFactorPin = false;
-      disconnectVPN();
+      // Отключаем только этот профиль
+      disconnectVPNByProfile(profileName);
     }
   };
 
   promptAndSend().catch((error) => {
     sendLog(`[ERROR] Error prompting for 2FA PIN: ${error.message}`, 'error');
-    waitingForTwoFactorPin = false;
   });
 }
 
@@ -377,29 +433,56 @@ async function promptForTwoFactorPin(profileName = null) {
   });
 }
 
-// Disconnect VPN
-function disconnectVPN() {
-  if (openconnectProcess) {
-    sendLog('Disconnecting...');
-
-    try {
-      openconnectProcess.stdin.end();
-    } catch (e) {}
-
-    openconnectProcess.kill('SIGINT');
-
-    setTimeout(() => {
-      if (openconnectProcess) {
-        sendLog('Force killing OpenConnect process...');
-        openconnectProcess.kill('SIGKILL');
-        openconnectProcess = null;
-        updateStatus('disconnected');
-      }
-    }, 5000);
-
-    return { success: true };
+// Disconnect VPN by profile name
+function disconnectVPNByProfile(profileName) {
+  const processEntry = openconnectProcesses[profileName];
+  
+  if (!processEntry || !processEntry.process) {
+    return { success: false, error: `No active connection for profile "${profileName}"` };
   }
-  return { success: false, error: 'Not connected' };
+
+  const sudoProcess = processEntry.process;
+  
+  sendLog(`Disconnecting profile "${profileName}"...`);
+
+  try {
+    sudoProcess.stdin.end();
+  } catch (e) {}
+
+  sudoProcess.kill('SIGINT');
+
+  setTimeout(() => {
+    if (openconnectProcesses[profileName] && openconnectProcesses[profileName].process) {
+      sendLog(`Force killing OpenConnect process for "${profileName}"...`);
+      openconnectProcesses[profileName].process.kill('SIGKILL');
+    }
+  }, 5000);
+
+  // Удалить процесс из хранилища
+  delete openconnectProcesses[profileName];
+  
+  // Обновить статус на основе оставшихся подключений
+  const activeConnections = Object.keys(openconnectProcesses).length;
+  updateStatus(activeConnections > 0 ? 'connected' : 'disconnected');
+
+  return { success: true };
+}
+
+// Disconnect all VPN connections
+function disconnectAllVPN() {
+  const profilesToDisconnect = Object.keys(openconnectProcesses);
+  
+  if (profilesToDisconnect.length === 0) {
+    return { success: false, error: 'No active connections' };
+  }
+
+  sendLog(`Disconnecting all ${profilesToDisconnect.length} VPN connection(s)...`);
+
+  profilesToDisconnect.forEach(profileName => {
+    disconnectVPNByProfile(profileName);
+  });
+
+  return { success: true, disconnectedCount: profilesToDisconnect.length };
 }
 
 // IPC Handlers
@@ -577,8 +660,17 @@ ipcMain.handle('connect-vpn', async (event, config) => {
   return connectVPN(config);
 });
 
-ipcMain.handle('disconnect-vpn', async () => {
-  return disconnectVPN();
+ipcMain.handle('disconnect-vpn', async (event, config) => {
+  // Если передан config.profileName - отключить конкретный профиль
+  if (config && config.profileName) {
+    return disconnectVPNByProfile(config.profileName);
+  }
+  // Иначе отключить все подключения
+  return disconnectAllVPN();
+});
+
+ipcMain.handle('get-active-connections', async () => {
+  return getActiveConnections();
 });
 
 ipcMain.handle('get-status', async () => {

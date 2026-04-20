@@ -19,6 +19,7 @@ function App() {
   const [currentView, setCurrentView] = useState('connection');
   const [problematicRoutesCount, setProblematicRoutesCount] = useState(0);
   const [runningProcessesCount, setRunningProcessesCount] = useState(0);
+  const [activeConnections, setActiveConnections] = useState([]);
 
   useEffect(() => {
     // Initialize the app
@@ -35,9 +36,13 @@ function App() {
       // Load saved profiles
       await loadProfiles();
 
-      // Get initial status
+      // Get initial status and active connections
       const status = await window.electronAPI.getStatus();
       setCurrentStatus(status);
+      
+      // Получить активные подключения
+      const connections = await window.electronAPI.getActiveConnections();
+      setActiveConnections(connections || []);
     };
 
     init();
@@ -45,6 +50,11 @@ function App() {
     // Setup IPC listeners
     window.electronAPI.onStatusChanged((status) => {
       setCurrentStatus(status);
+    });
+
+    // Слушать изменения в активных подключениях
+    window.electronAPI.onActiveConnectionsChanged((connections) => {
+      setActiveConnections(connections || []);
     });
 
     window.electronAPI.onLogMessage((log) => {
@@ -172,6 +182,7 @@ function App() {
                 saveProfiles={saveProfiles}
                 loadProfiles={loadProfiles}
                 onServerChange={setCurrentServerUrl}
+                activeConnections={activeConnections}
               />
               <BasicLogs
                 logs={logs}
