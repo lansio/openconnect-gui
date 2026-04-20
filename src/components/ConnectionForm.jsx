@@ -446,13 +446,6 @@ function ConnectionForm({
                 {isConnecting ? 'Connecting...' : 'Connect'}
               </Button>
             )}
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={handleSaveProfile}
-            >
-              Save Profile
-            </Button>
           </div>
         </div>
 
