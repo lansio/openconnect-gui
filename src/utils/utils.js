@@ -1,5 +1,6 @@
 const { dialog } = require('electron');
 const fs = require('fs');
+const path = require('path');
 
 // Status management
 function updateStatus(status) {
@@ -13,7 +14,7 @@ function sendLog(message, level = 'info') {
 // Profile management
 function getProfilesFile() {
   const { app } = require('electron');
-  return fs.path.join(app.getPath('userData'), 'profiles.json');
+  return path.join(app.getPath('userData'), 'profiles.json');
 }
 
 function saveProfiles(profiles) {
