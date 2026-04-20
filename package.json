@@ -1,6 +1,6 @@
 {
   "name": "openconnect-gui",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "OpenConnect VPN GUI application for macOS",
   "main": "main.js",
   "scripts": {
@@ -75,7 +75,7 @@
     "mac": {
       "category": "public.app-category.utilities",
       "target": "dmg",
-      "icon": "build/icon.icns"
+      "icon": "build/tunnel-icon.icns"
     }
   }
 }

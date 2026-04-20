@@ -1,28 +1,52 @@
 #!/usr/bin/env node
 
-// Simple script to create a basic tray icon
-// This creates a 16x16 PNG with a simple VPN shield icon
+// Script to create a tray icon from the tunnel SVG
+// This creates a 16x16 PNG with a simplified tunnel icon
 
 const fs = require('fs');
 const path = require('path');
-
-// Base64 encoded 16x16 PNG of a simple shield/lock icon (black, transparent background)
-// This is a minimal icon suitable for macOS menu bar
-const iconBase64 = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAA' +
-  'aElEQVR4nGNgoBAwUqifgYGB4T8DXPwfC0YXZCBFMxNIw38s4D8DA8N/LBgbpghiNEMxTAxFMw5N' +
-  'OG0YAEYzEwMDA8N/BmyAqA0MUAMMDAwM/3FgZGBgYGBgwKMZWSMyvRgYpxkAuKAXEfqlF9sAAAAA' +
-  'SUVORK5CYII=';
+const { execSync } = require('child_process');
 
 const assetsDir = path.join(__dirname, '..', 'assets');
+const iconPath = path.join(assetsDir, 'tray-icon.png');
 
 // Ensure assets directory exists
 if (!fs.existsSync(assetsDir)) {
   fs.mkdirSync(assetsDir, { recursive: true });
 }
 
-// Write the icon file
-const iconPath = path.join(assetsDir, 'tray-icon.png');
-const buffer = Buffer.from(iconBase64, 'base64');
-fs.writeFileSync(iconPath, buffer);
+// Check if the icon already exists and is recent
+if (fs.existsSync(iconPath)) {
+  const now = Date.now();
+  const iconTime = fs.statSync(iconPath).mtime.getTime();
+  // Recreate if older than 1 day
+  if (now - iconTime < 24 * 60 * 60 * 1000) {
+    console.log('Tray icon already exists and is up to date');
+    process.exit(0);
+  }
+}
 
-console.log('✅ Tray icon created successfully at:', iconPath);
+// Use sips to convert and resize the SVG
+const buildDir = path.join(__dirname, '..', 'build');
+const iconFile = path.join(buildDir, 'tunnel-icon.svg');
+
+if (!fs.existsSync(iconFile)) {
+  console.error('Error: tunnel-icon.svg not found in build directory');
+  process.exit(1);
+}
+
+try {
+  // Convert SVG to PNG at tray icon size (16x16)
+  execSync(`sips -z 16 16 --out "${iconPath}" "${iconFile}"`, { stdio: 'pipe' });
+  console.log('✅ Tray icon created successfully at:', iconPath);
+} catch (error) {
+  // Fallback: try using convert from ImageMagick
+  console.log('sips failed, trying ImageMagick...');
+  try {
+    execSync(`magick "${iconFile}" -background none -resize 16x16 "${iconPath}"`, { stdio: 'pipe' });
+    console.log('✅ Tray icon created successfully at:', iconPath);
+  } catch (convertError) {
+    console.error('Error creating tray icon:', convertError.message);
+    process.exit(1);
+  }
+}

@@ -22,6 +22,9 @@ profiles.json
 # Generated assets
 assets/tray-icon.png
 
+# Tray icon build files (keep the .icns file)
+build/tunnel-icon.iconset/
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
