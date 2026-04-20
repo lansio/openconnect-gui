@@ -35,6 +35,10 @@ function updateStatus(status) {
   if (tray) {
     tray.setToolTip(`OpenConnect VPN - ${connectionStatus}`);
   }
+  // Send status change to renderer
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('status-changed', status);
+  }
 }
 
 // Send log to renderer

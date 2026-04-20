@@ -487,7 +487,7 @@ function ConnectionForm({
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              disabled={!openConnectInstalled || !isDisconnected}
+              disabled={!openConnectInstalled || isConnected || isConnecting}
               onClick={handleConnect}
             >
               Connect
@@ -495,7 +495,7 @@ function ConnectionForm({
             <Button
               type="button"
               variant="destructive"
-              disabled={isDisconnected}
+              disabled={!isConnected}
               onClick={handleDisconnect}
             >
               Disconnect
