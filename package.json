@@ -1,10 +1,9 @@
 {
   "name": "openconnect-gui",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "OpenConnect VPN GUI application for macOS",
   "main": "main.js",
   "scripts": {
-    "postinstall": "node scripts/create-tray-icon.js",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

@@ -26,6 +26,8 @@ let tray;
 let openconnectProcesses = {};
 let connectionStatus = 'disconnected';
 let mainWindow;
+// Global flag for quitting status (shared with renderer)
+global.isQuitting = false;
 
 // Setup complete file path
 const SETUP_COMPLETE_FILE = path.join(app.getPath('userData'), 'SETUP_COMPLETE');
@@ -109,7 +111,7 @@ function updateTrayMenu() {
     {
       label: 'Quit',
       click: () => {
-        app.isQuitting = true;
+        global.isQuitting = true;
         app.quit();
       }
     }
@@ -762,9 +764,74 @@ ipcMain.on('splash-ready', (event, ...args) => {
   }
 });
 
+// Create macOS application menu
+function createMenu() {
+  const { Menu } = require('electron');
+  
+  const template = [
+    {
+      label: 'OpenConnect VPN',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { 
+          label: 'Settings',
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.show();
+            }
+          }
+        },
+        { type: 'separator' },
+        { 
+          label: 'Quit',
+          accelerator: 'Cmd+Q',
+          click: () => {
+            global.isQuitting = true;
+            app.quit();
+          }
+        }
+      ]
+    },
+    {
+      role: 'window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'close' },
+        { type: 'separator' },
+        { 
+          label: 'Show Window',
+          accelerator: 'Cmd+Shift+W',
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.show();
+            }
+          }
+        }
+      ]
+    },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'About OpenConnect VPN',
+          click: () => {
+            require('electron').shell.openExternal('https://www/openconnect.io');
+          }
+        }
+      ]
+    }
+  ];
+  
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 // App lifecycle
 app.whenReady().then(() => {
   createSplashWindow();
+  // Create menu after app is ready
+  createMenu();
 });
 
 // Handle splash screen loaded and start system checks
@@ -838,9 +905,24 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => {
-  app.isQuitting = true;
-  if (openconnectProcess) {
-    openconnectProcess.kill('SIGTERM');
+app.on('before-quit', async () => {
+  global.isQuitting = true;
+  // Отключаем все активные VPN подключения
+  const activeConnections = Object.keys(openconnectProcesses);
+  if (activeConnections.length > 0) {
+    sendLog(`Closing ${activeConnections.length} active VPN connection(s)...`, 'info');
+    // Отключаем все подключения асинхронно
+    for (const profileName of activeConnections) {
+      disconnectVPNByProfile(profileName);
+    }
+    // Небольшая задержка перед завершением
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+});
+
+// Обработка активации приложения на macOS (клик по иконке в доке)
+app.on('activate', () => {
+  if (mainWindow) {
+    mainWindow.show();
   }
 });

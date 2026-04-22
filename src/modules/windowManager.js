@@ -64,9 +64,12 @@ function createMainWindow() {
     window.loadFile(path.join(__dirname, '..', '..', 'dist', 'pages', 'index.html'));
   }
 
-  // Prevent window close, minimize to tray instead
+  // Prevent window close, minimize to tray instead (unless quitting)
   window.on('close', (event) => {
-    if (!process.argv.includes('--quit')) {
+    // Check if user is quitting the app
+    const isQuitting = global.isQuitting || process.argv.includes('--quit');
+    
+    if (!isQuitting) {
       event.preventDefault();
       window.hide();
     }
