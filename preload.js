@@ -37,6 +37,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isFirstStart: () => ipcRenderer.invoke('is-first-start'),
   markSetupComplete: () => ipcRenderer.invoke('mark-setup-complete'),
 
+  // System checks
+  performSystemChecks: () => ipcRenderer.invoke('perform-system-checks'),
+
   // Event sending
   send: (channel, ...args) => ipcRenderer.send(channel, ...args),
 

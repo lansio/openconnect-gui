@@ -22,6 +22,7 @@ export default defineConfig({
         installer: path.resolve(__dirname, 'pages/installer-helper.html'),
         password: path.resolve(__dirname, 'pages/password-prompt.html'),
         twoFactor: path.resolve(__dirname, 'pages/two-factor-prompt.html'),
+        preinstall: path.resolve(__dirname, 'pages/preinstall.html'),
       },
       output: {
         entryFileNames: 'assets/[name]-[hash].js',

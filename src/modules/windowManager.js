@@ -8,6 +8,7 @@ const isDev = !app.isPackaged;
 let mainWindow;
 let splashWindow;
 let installerWindow;
+let preinstallWindow;
 
 // Helper to get path to pages directory
 function getPagesPath() {
@@ -165,6 +166,47 @@ function createInstallerWindow() {
   });
 }
 
+// Create preinstall window (system checks/setup)
+function createPreinstallWindow() {
+  if (preinstallWindow) {
+    preinstallWindow.focus();
+    return;
+  }
+
+  const preloadPath = getPreloadPath();
+
+  preinstallWindow = new BrowserWindow({
+    width: 900,
+    height: 700,
+    webPreferences: {
+      preload: preloadPath,
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 10, y: 10 },
+    minimizable: false,
+    maximizable: false,
+  });
+
+  // Load the preinstall page - in dev mode, load from vite server; in production, load from dist
+  if (isDev) {
+    preinstallWindow.loadURL('http://localhost:5173/pages/preinstall.html');
+  } else {
+    const pagesPath = getPagesPath();
+    const preinstallHtmlPath = path.join(pagesPath, 'preinstall.html');
+    console.log('[windowManager] Loading preinstall from:', preinstallHtmlPath);
+    // Use file:// protocol for asar archives
+    const url = `file://${preinstallHtmlPath}`;
+    console.log('[windowManager] Loading preinstall URL:', url);
+    preinstallWindow.loadURL(url);
+  }
+
+  preinstallWindow.on('closed', () => {
+    preinstallWindow = null;
+  });
+}
+
 // Window management functions
 function getMainWindow() {
   return mainWindow;
@@ -199,13 +241,19 @@ function closeAllWindows() {
   }
 }
 
+function getPreinstallWindow() {
+  return preinstallWindow;
+}
+
 module.exports = {
   createSplashWindow,
   createMainWindow,
   createInstallerWindow,
+  createPreinstallWindow,
   getMainWindow,
   getSplashWindow,
   getInstallerWindow,
+  getPreinstallWindow,
   showMainWindow,
   closeAllWindows,
   isDev
