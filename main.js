@@ -3,8 +3,27 @@ const { spawn, exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+// Determine the correct module paths based on whether we're in dev or production
+const isPackaged = app.isPackaged;
+
+// Helper function to require modules with correct paths
+function requireModule(modulePath) {
+  // In production, __dirname points to the app bundle's Resources/app
+  // In development, __dirname points to the project root (when launched via electron .)
+  let baseDir = __dirname;
+  
+  // If running in dev mode and __dirname contains 'app', we need to go up one level
+  if (!isPackaged && __dirname.endsWith('app')) {
+    baseDir = path.dirname(__dirname);
+  }
+  
+  return require(path.join(baseDir, 'src', modulePath));
+}
+
 // Import modules
-const { createSplashWindow, createMainWindow, createInstallerWindow, getSplashWindow } = require('./src/modules/windowManager');
+console.log('[main] Importing windowManager...');
+const { createSplashWindow, createMainWindow, createInstallerWindow, getSplashWindow, isDev } = requireModule('modules/windowManager');
+console.log('[main] windowManager imported, createSplashWindow:', typeof createSplashWindow, 'isDev:', isDev);
 const {
   checkOpenConnect,
   checkSudoAccess,
@@ -14,11 +33,11 @@ const {
   markSetupComplete,
   checkSetupComplete,
   performSystemChecks
-} = require('./src/modules/systemChecks');
+} = requireModule('modules/systemChecks');
 
 // Import utils
-const { saveProfiles, loadProfiles, getProfilesFile } = require('./src/utils/utils');
-const systemKeychain = require('./src/modules/systemKeychain');
+const { saveProfiles, loadProfiles, getProfilesFile } = requireModule('utils/utils');
+const systemKeychain = requireModule('modules/systemKeychain');
 
 // Global state
 let tray;
@@ -338,7 +357,7 @@ function handleTwoFactorPrompt(sudoProcess, profileName = null) {
   const tryLoadFromKeychain = async () => {
     if (!profileName) return null;
 
-    const { getTwoFactorCode } = require('./src/modules/systemKeychain');
+    const { getTwoFactorCode } = requireModule('modules/systemKeychain');
     const result = await getTwoFactorCode(profileName);
 
     if (result.success) {
@@ -396,6 +415,19 @@ async function promptForTwoFactorPin(profileName = null) {
 
     const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
+    // Helper to get path to pages directory
+    function getPagesPath() {
+      let baseDir;
+      if (app.isPackaged) {
+        // In packaged app, __dirname is /path/to/OpenConnect VPN.app/Contents/Resources/app
+        baseDir = __dirname;
+      } else {
+        // In dev, __dirname is project root (when launched via electron .)
+        baseDir = path.dirname(__dirname);
+      }
+      return path.join(baseDir, 'dist', 'pages');
+    }
+
     // Set profile name in window object for TwoFactorPrompt
     if (profileName) {
       promptWindow.webContents.executeJavaScript(`
@@ -406,7 +438,13 @@ async function promptForTwoFactorPin(profileName = null) {
     if (isDev) {
       promptWindow.loadURL('http://localhost:5173/pages/two-factor-prompt.html');
     } else {
-      promptWindow.loadFile(path.join(__dirname, 'dist', 'pages', 'two-factor-prompt.html'));
+      const pagesPath = getPagesPath();
+      const twoFactorHtmlPath = path.join(pagesPath, 'two-factor-prompt.html');
+      console.log('[main] Loading 2FA prompt from:', twoFactorHtmlPath);
+      // Use file:// protocol for asar archives
+      const url = `file://${twoFactorHtmlPath}`;
+      console.log('[main] Loading 2FA prompt URL:', url);
+      promptWindow.loadURL(url);
     }
 
     const { ipcMain } = require('electron');
@@ -841,6 +879,7 @@ function createMenu() {
 
 // App lifecycle
 app.whenReady().then(() => {
+  console.log('[main] app.whenReady called');
   createSplashWindow();
   // Create menu after app is ready
   createMenu();

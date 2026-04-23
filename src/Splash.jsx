@@ -63,7 +63,7 @@ function Splash() {
       const { ipcRenderer: ipcr } = window.require('electron');
       const isSetupComplete = await ipcr.invoke('is-first-start').then(val => !val);
       console.log('[Splash] Setup complete:', isSetupComplete);
-      
+
       if (isSetupComplete) {
         // Setup already done, go directly to main window
         console.log('[Splash] Direct transition to main window...');

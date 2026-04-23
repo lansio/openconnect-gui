@@ -1,9 +1,44 @@
 const { BrowserWindow } = require('electron');
 const path = require('path');
+const { app } = require('electron');
+
+// Determine if running in development mode (exported from here for use in main.js)
+const isDev = !app.isPackaged;
 
 let mainWindow;
 let splashWindow;
 let installerWindow;
+
+// Helper to get path to pages directory
+function getPagesPath() {
+  // In production: app.asar is at /path/to/OpenConnect VPN.app/Contents/Resources/app.asar
+  // In dev: __dirname points to src/modules (from where require is called)
+
+  let baseDir;
+  if (app.isPackaged) {
+    // In packaged app, files are inside app.asar
+    // app.getAppPath() returns /path/to/OpenConnect VPN.app/Contents/Resources/app.asar
+    // We need to add dist/pages to it
+    baseDir = app.getAppPath();
+  } else {
+    // In dev, __dirname is src/modules, so go up two levels to project root
+    baseDir = path.join(__dirname, '..', '..');
+  }
+  return path.join(baseDir, 'dist', 'pages');
+}
+
+// Helper to get preload path
+function getPreloadPath() {
+  let baseDir;
+  if (app.isPackaged) {
+    // In packaged app, preload.js is inside app.asar
+    baseDir = app.getAppPath();
+  } else {
+    // In dev, __dirname is src/modules, so go up two levels to project root
+    baseDir = path.join(__dirname, '..', '..');
+  }
+  return path.join(baseDir, 'preload.js');
+}
 
 // Create splash window
 function createSplashWindow() {
@@ -19,12 +54,16 @@ function createSplashWindow() {
   });
 
   // Load the splash screen - in dev mode, load from vite server; in production, load from dist
-  const isDev = process.env.NODE_ENV === 'development' || !process.argv.includes('--production');
-
   if (isDev) {
     splashWindow.loadURL('http://localhost:5173/pages/splash.html');
   } else {
-    splashWindow.loadFile(path.join(__dirname, '..', '..', 'dist', 'pages', 'splash.html'));
+    const pagesPath = getPagesPath();
+    const splashHtmlPath = path.join(pagesPath, 'splash.html');
+    console.log('[windowManager] Loading splash from:', splashHtmlPath);
+    // Use file:// protocol for asar archives
+    const url = `file://${splashHtmlPath}`;
+    console.log('[windowManager] Loading splash URL:', url);
+    splashWindow.loadURL(url);
   }
 
   splashWindow.center();
@@ -37,10 +76,7 @@ function createSplashWindow() {
 
 // Create main window
 function createMainWindow() {
-  const isDev = process.env.NODE_ENV === 'development' || !process.argv.includes('--production');
-  const preloadPath = isDev
-    ? path.join(__dirname, '..', '..', 'preload.js')
-    : path.join(__dirname, '..', '..', 'dist', 'preload.js');
+  const preloadPath = getPreloadPath();
 
   const window = new BrowserWindow({
     width: 1400,
@@ -61,7 +97,13 @@ function createMainWindow() {
     window.loadURL('http://localhost:5173/pages/index.html');
   } else {
     // Production mode - load from built files
-    window.loadFile(path.join(__dirname, '..', '..', 'dist', 'pages', 'index.html'));
+    const pagesPath = getPagesPath();
+    const indexHtmlPath = path.join(pagesPath, 'index.html');
+    console.log('[windowManager] Loading main from:', indexHtmlPath);
+    // Use file:// protocol for asar archives
+    const url = `file://${indexHtmlPath}`;
+    console.log('[windowManager] Loading main URL:', url);
+    window.loadURL(url);
   }
 
   // Prevent window close, minimize to tray instead (unless quitting)
@@ -106,12 +148,16 @@ function createInstallerWindow() {
   });
 
   // Load the installer helper - in dev mode, load from vite server; in production, load from dist
-  const isDev = process.env.NODE_ENV === 'development' || !process.argv.includes('--production');
-
   if (isDev) {
     installerWindow.loadURL('http://localhost:5173/pages/installer-helper.html');
   } else {
-    installerWindow.loadFile(path.join(__dirname, '..', '..', 'dist', 'pages', 'installer-helper.html'));
+    const pagesPath = getPagesPath();
+    const installerHtmlPath = path.join(pagesPath, 'installer-helper.html');
+    console.log('[windowManager] Loading installer from:', installerHtmlPath);
+    // Use file:// protocol for asar archives
+    const url = `file://${installerHtmlPath}`;
+    console.log('[windowManager] Loading installer URL:', url);
+    installerWindow.loadURL(url);
   }
 
   installerWindow.on('closed', () => {
@@ -161,5 +207,6 @@ module.exports = {
   getSplashWindow,
   getInstallerWindow,
   showMainWindow,
-  closeAllWindows
+  closeAllWindows,
+  isDev
 };

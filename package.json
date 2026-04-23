@@ -53,8 +53,8 @@
     "files": [
       "main.js",
       "preload.js",
-      "dist/pages/**/*",
-      "dist/assets/**/*",
+      "dist/**/*",
+      "src/**/*",
       "assets/**/*",
       "scripts/**/*",
       "!dist/mac-arm64",
