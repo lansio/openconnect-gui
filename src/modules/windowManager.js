@@ -117,10 +117,10 @@ function createMainWindow() {
     }
   });
 
-  // Show the window when ready
+  // Show the window when ready - but only if user explicitly requested it
   window.once('ready-to-show', () => {
-    console.log('[windowManager] Window ready to show, showing...');
-    window.show();
+    console.log('[windowManager] Window ready to show, NOT showing automatically (user must click tray icon)');
+    // Do not show window automatically - user should click tray to show
   });
 
   return window;
