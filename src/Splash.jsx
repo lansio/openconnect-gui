@@ -67,8 +67,6 @@ function Splash() {
       if (isSetupComplete) {
         // Setup already done, go directly to main window
         console.log('[Splash] Direct transition to main window...');
-        // Don't send splash-complete here as it would trigger duplicate window creation
-        // The main process already handles creating the main window
       } else {
         // First time setup, show sudoers notice
         setShowSudoersNotice(true);

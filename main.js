@@ -56,12 +56,16 @@ function updateStatus(status) {
   connectionStatus = status;
   if (tray) {
     tray.setToolTip(`OpenConnect VPN - ${connectionStatus}`);
+    // Call updateTrayMenu async to avoid blocking
+    setImmediate(async () => {
+      await updateTrayMenu();
+    });
   }
   // Send status change to renderer
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('status-changed', status);
   }
-  
+
   // Send active connections to renderer
   const activeConnections = getActiveConnections();
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -89,10 +93,17 @@ function sendLog(message, level = 'info') {
 }
 
 // Create system tray
-function createTray() {
+async function createTray() {
   const { Tray, Menu } = require('electron');
-  tray = new Tray(path.join(__dirname, 'assets', 'tray-icon.png'));
-  updateTrayMenu();
+  // Try multiple icon paths
+  let iconPath = path.join(__dirname, 'assets', 'tray-icon.png');
+  if (!require('fs').existsSync(iconPath)) {
+    // Fallback to building-tunnel.png
+    iconPath = path.join(__dirname, 'assets', 'building-tunnel.png');
+  }
+  console.log('[main] Creating tray with icon:', iconPath);
+  tray = new Tray(iconPath);
+  await updateTrayMenu();
 
   tray.on('click', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -101,15 +112,75 @@ function createTray() {
   });
 }
 
-function updateTrayMenu() {
+async function updateTrayMenu() {
   if (!tray) return;
 
   const { Menu } = require('electron');
+
+  // Load profiles
+  let profiles = [];
+  try {
+    const { loadProfiles } = requireModule('utils/utils');
+    const result = await loadProfiles();
+    if (result.success) {
+      profiles = result.profiles || [];
+    }
+  } catch (e) {
+    console.log('[updateTrayMenu] Error loading profiles:', e.message);
+  }
+  
+  // Build profile menu items
+  const profileMenuItems = profiles.map(profile => {
+    const isActive = openconnectProcesses[profile.name] !== undefined;
+    return {
+      label: `${isActive ? '●' : '○'} ${profile.name}`,
+      enabled: true,
+      click: async () => {
+        if (isActive) {
+          // Disconnect if already connected
+          sendLog(`Disconnecting profile "${profile.name}" from tray...`, 'info');
+          disconnectVPNByProfile(profile.name);
+        } else {
+          // Connect if not connected
+          sendLog(`Connecting profile "${profile.name}" from tray...`, 'info');
+          
+          // Get credentials
+          let password = profile.password || '';
+          const { getCredentials } = requireModule('modules/systemKeychain');
+          const keychainResult = await getCredentials(profile.name);
+          
+          if (keychainResult.success && keychainResult.password) {
+            password = keychainResult.password;
+          }
+          
+          if (!password && !profile.password) {
+            sendLog(`[ERROR] No password found for profile "${profile.name}"`, 'error');
+            // TODO: Show prompt for password
+            return;
+          }
+          
+          const config = {
+            server: profile.server,
+            username: profile.username,
+            password: password,
+            authgroup: profile.authgroup || undefined,
+            protocol: profile.protocol || 'anyconnect',
+            serverCert: profile.serverCert || undefined,
+            profileName: profile.name
+          };
+          
+          connectVPN(config);
+        }
+      }
+    };
+  });
+  
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: `Status: ${connectionStatus}`,
+      label: profiles.length > 0 ? 'Profiles' : 'No Profiles',
       enabled: false
     },
+    ...profileMenuItems,
     { type: 'separator' },
     {
       label: 'Show Window',
@@ -120,10 +191,37 @@ function updateTrayMenu() {
       }
     },
     {
-      label: connectionStatus === 'connected' ? 'Disconnect' : 'Connect',
-      enabled: false,
-      click: () => {
-        // Quick connect with last profile could be implemented here
+      label: connectionStatus === 'connected' ? 'Disconnect All' : (profiles.length > 0 ? 'Connect Last' : 'Connect'),
+      enabled: connectionStatus === 'connected' || profiles.length > 0,
+      click: async () => {
+        if (connectionStatus === 'connected') {
+          disconnectAllVPN();
+        } else if (profiles.length > 0) {
+          // Connect to last profile
+          const lastProfile = profiles[profiles.length - 1];
+          sendLog(`Connecting last profile "${lastProfile.name}" from tray...`, 'info');
+
+          // Get credentials
+          let password = lastProfile.password || '';
+          const { getCredentials } = requireModule('modules/systemKeychain');
+          const result = await getCredentials(lastProfile.name);
+          if (result.success && result.password) {
+            password = result.password;
+          }
+
+          if (password || lastProfile.password) {
+            const config = {
+              server: lastProfile.server,
+              username: lastProfile.username,
+              password: password || lastProfile.password,
+              authgroup: lastProfile.authgroup || undefined,
+              protocol: lastProfile.protocol || 'anyconnect',
+              serverCert: lastProfile.serverCert || undefined,
+              profileName: lastProfile.name
+            };
+            connectVPN(config);
+          }
+        }
       }
     },
     { type: 'separator' },
@@ -767,41 +865,6 @@ ipcMain.handle('delete-two-factor-code', async (event, profileName) => {
   return systemKeychain.deleteTwoFactorCode(profileName);
 });
 
-// Handle splash screen completion and show main window
-ipcMain.on('splash-ready', (event, ...args) => {
-  console.log('[main] [IPC CATCH-ALL] splash-ready event received from', event.sender.id, 'args:', args);
-  console.log('[main] current mainWindow before create:', !!mainWindow);
-
-  // System checks passed, create and show main window
-  console.log('[main] Creating new main window...');
-  const newMainWindow = createMainWindow();
-  mainWindow = newMainWindow;
-  
-  console.log('[main] mainWindow after assign:', !!mainWindow);
-  
-  try {
-    createTray();
-  } catch (e) {
-    console.log('[main] Error in createTray:', e.message);
-  }
-
-  // Close splash after a short delay
-  setTimeout(() => {
-    if (getSplashWindow()) {
-      getSplashWindow().close();
-    }
-  }, 300);
-
-  // Show main window
-  console.log('[main] Attempting to show main window, isDestroyed:', mainWindow?.isDestroyed());
-  if (mainWindow) {
-    console.log('[main] Showing main window');
-    mainWindow.show();
-  } else {
-    console.log('[main] mainWindow is null or destroyed');
-  }
-});
-
 // Create macOS application menu
 function createMenu() {
   const { Menu } = require('electron');
@@ -878,12 +941,33 @@ function createMenu() {
 }
 
 // App lifecycle
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   console.log('[main] app.whenReady called');
+
+  // Hide dock icon - show only in menu bar
+  if (process.platform === 'darwin') {
+    app.dock.hide();
+  }
+
   createSplashWindow();
   // Create menu after app is ready
   createMenu();
+
+  // Tray will be created in splash-loaded handler to avoid duplicate creation
 });
+
+// Close splash window when requested from renderer
+ipcMain.on('splash-window-closed', () => {
+  console.log('[main] Splash window closed by renderer');
+});
+
+// Close splash window when main window is created
+function closeSplashWindow() {
+  if (getSplashWindow() && !getSplashWindow().isDestroyed()) {
+    console.log('[main] Closing splash window...');
+    getSplashWindow().close();
+  }
+}
 
 // Handle splash screen loaded and start system checks
 ipcMain.on('splash-loaded', async () => {
@@ -903,40 +987,34 @@ ipcMain.on('splash-loaded', async () => {
     if (isSetupComplete) {
       // Setup already complete, skip checks and go directly to main window
       console.log('Setup already complete, skipping system checks');
-      
+
       // Notify splash that it's ready to close
       if (splashWin && !splashWin.isDestroyed()) {
         splashWin.webContents.send('splash-complete');
       }
-      
-      // Create and show main window after a short delay
+
+      // Create main window (hidden initially)
+      console.log('[main] Creating main window (setup complete, skipping checks)...');
+      const newMainWindow = createMainWindow();
+      mainWindow = newMainWindow;
+
+      console.log('[main] mainWindow after assign:', !!mainWindow);
+
+      // Create tray
+      try {
+        await createTray();
+      } catch (e) {
+        console.log('[main] Error in createTray:', e.message);
+      }
+
+      // Don't show main window automatically - it will be shown via tray or menu
+      console.log('[main] Main window created, not showing automatically');
+
+      // Close splash window after main window is ready
       setTimeout(() => {
-        if (splashWin && !splashWin.isDestroyed()) {
-          splashWin.close();
-        }
-        
-        console.log('[main] Creating main window (setup complete, skipping checks)...');
-        const newMainWindow = createMainWindow();
-        mainWindow = newMainWindow;
-        
-        console.log('[main] mainWindow after assign:', !!mainWindow);
-        
-        try {
-          createTray();
-        } catch (e) {
-          console.log('[main] Error in createTray:', e.message);
-        }
-        
-        // Show main window
-        console.log('[main] Attempting to show main window, isDestroyed:', mainWindow?.isDestroyed());
-        if (mainWindow) {
-          console.log('[main] Showing main window');
-          mainWindow.show();
-        } else {
-          console.log('[main] mainWindow is null or destroyed');
-        }
-      }, 500);
-      
+        closeSplashWindow();
+      }, 300);
+
       return;
     }
     
