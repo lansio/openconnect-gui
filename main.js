@@ -22,7 +22,7 @@ function requireModule(modulePath) {
 
 // Import modules
 console.log('[main] Importing windowManager...');
-const { createSplashWindow, createMainWindow, createInstallerWindow, getSplashWindow, isDev } = requireModule('modules/windowManager');
+const { createSplashWindow, createMainWindow, createInstallerWindow, createPreinstallWindow, getSplashWindow, isDev } = requireModule('modules/windowManager');
 console.log('[main] windowManager imported, createSplashWindow:', typeof createSplashWindow, 'isDev:', isDev);
 const {
   checkOpenConnect,
@@ -105,11 +105,7 @@ async function createTray() {
   tray = new Tray(iconPath);
   await updateTrayMenu();
 
-  tray.on('click', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.show();
-    }
-  });
+  // No click handler - only menu items trigger actions
 }
 
 async function updateTrayMenu() {
@@ -183,7 +179,7 @@ async function updateTrayMenu() {
     ...profileMenuItems,
     { type: 'separator' },
     {
-      label: 'Show Window',
+      label: 'Settings...',
       click: () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.show();
@@ -191,36 +187,20 @@ async function updateTrayMenu() {
       }
     },
     {
-      label: connectionStatus === 'connected' ? 'Disconnect All' : (profiles.length > 0 ? 'Connect Last' : 'Connect'),
-      enabled: connectionStatus === 'connected' || profiles.length > 0,
+      label: 'Preinstall...',
+      click: () => {
+        sendLog('Opening Preinstall window...', 'info');
+        // TODO: Create and show preinstall window
+        createPreinstallWindow();
+      }
+    },
+    { type: 'separator', visible: connectionStatus === 'connected' },
+    {
+      label: 'Disconnect All',
+      enabled: connectionStatus === 'connected',
       click: async () => {
         if (connectionStatus === 'connected') {
           disconnectAllVPN();
-        } else if (profiles.length > 0) {
-          // Connect to last profile
-          const lastProfile = profiles[profiles.length - 1];
-          sendLog(`Connecting last profile "${lastProfile.name}" from tray...`, 'info');
-
-          // Get credentials
-          let password = lastProfile.password || '';
-          const { getCredentials } = requireModule('modules/systemKeychain');
-          const result = await getCredentials(lastProfile.name);
-          if (result.success && result.password) {
-            password = result.password;
-          }
-
-          if (password || lastProfile.password) {
-            const config = {
-              server: lastProfile.server,
-              username: lastProfile.username,
-              password: password || lastProfile.password,
-              authgroup: lastProfile.authgroup || undefined,
-              protocol: lastProfile.protocol || 'anyconnect',
-              serverCert: lastProfile.serverCert || undefined,
-              profileName: lastProfile.name
-            };
-            connectVPN(config);
-          }
         }
       }
     },
@@ -499,8 +479,6 @@ async function promptForTwoFactorPin(profileName = null) {
     const promptWindow = new BrowserWindow({
       width: 520,
       height: 400,
-      parent: mainWindow,
-      modal: false,
       show: false,
       resizable: false,
       minimizable: false,
@@ -792,6 +770,10 @@ ipcMain.handle('get-network-interfaces', async () => {
       resolve(interfaces);
     });
   });
+});
+
+ipcMain.handle('perform-system-checks', async () => {
+  return performSystemChecks(null);
 });
 
 ipcMain.handle('connect-vpn', async (event, config) => {
