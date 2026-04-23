@@ -33,8 +33,8 @@ function ConnectionForm({
   const [keychainStatus, setKeychainStatus] = useState(null); // 'available', 'not_available', 'empty'
   const [loadingKeychain, setLoadingKeychain] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  // Persist last selected profile in component state for session
-  const [lastSelectedProfile, setLastSelectedProfile] = useState(null);
+  // Track if initial profile load has been done (to avoid double load)
+  const [isInitialProfileLoad, setIsInitialProfileLoad] = useState(false);
 
   // Check if keychain is available on mount
   useEffect(() => {
@@ -53,22 +53,28 @@ function ConnectionForm({
 
   // When profiles change, try to restore last selected profile
   useEffect(() => {
-    if (profiles.length > 0 && !lastSelectedProfile) {
+    if (profiles.length > 0 && !isInitialProfileLoad) {
       // Try to restore from localStorage
       const savedLastProfile = window.localStorage?.getItem('openconnect_last_profile');
       if (savedLastProfile && profiles.find(p => p.name === savedLastProfile)) {
         setSelectedProfile(savedLastProfile);
-        setLastSelectedProfile(savedLastProfile);
       } else if (profiles.length > 0) {
         // Set to first available profile
         setSelectedProfile(profiles[0].name);
-        setLastSelectedProfile(profiles[0].name);
       }
+      setIsInitialProfileLoad(true);
     } else if (profiles.length === 0 && selectedProfile !== '__new__') {
       // No profiles, switch to new
       setSelectedProfile('__new__');
     }
   }, [profiles.length]);
+
+  // Load profile data when selectedProfile changes
+  useEffect(() => {
+    if (selectedProfile && selectedProfile !== '__new__' && isInitialProfileLoad) {
+      loadProfileData(selectedProfile);
+    }
+  }, [selectedProfile]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -80,15 +86,8 @@ function ConnectionForm({
     }
   };
 
-  const handleProfileSelect = async (profileName) => {
-    // Save last selected profile to localStorage
-    if (profileName && profileName !== '__new__') {
-      window.localStorage?.setItem('openconnect_last_profile', profileName);
-    }
-
-    setSelectedProfile(profileName);
-    setIsEditingProfile(false); // Reset editing mode when changing profile
-
+  // Load profile data into form (does not change selectedProfile)
+  const loadProfileData = async (profileName) => {
     if (!profileName || profileName === '__new__') {
       // Clear form
       setFormData({
@@ -100,7 +99,6 @@ function ConnectionForm({
         protocol: 'anyconnect',
         serverCert: ''
       });
-      setSelectedProfile('__new__');
       if (onServerChange) {
         onServerChange('');
       }
@@ -171,6 +169,16 @@ function ConnectionForm({
         onServerChange(profile.server);
       }
     }
+  };
+
+  const handleProfileSelect = async (profileName) => {
+    // Save last selected profile to localStorage
+    if (profileName && profileName !== '__new__') {
+      window.localStorage?.setItem('openconnect_last_profile', profileName);
+    }
+
+    setSelectedProfile(profileName);
+    setIsEditingProfile(false); // Reset editing mode when changing profile
   };
 
   const handleEditProfile = () => {
