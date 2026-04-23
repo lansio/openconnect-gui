@@ -52,7 +52,7 @@ function createMainWindow() {
       contextIsolation: true,
     },
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 10, y: 10 }
+    trafficLightPosition: { x: 10, y: 10 },
   });
 
   // Load the app - in dev mode, load from vite server; in production, load from dist

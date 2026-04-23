@@ -811,6 +811,18 @@ function createMenu() {
       ]
     },
     {
+      role: 'editMenu',
+      submenu: [
+        { role: 'cut', label: 'Cut' },
+        { role: 'copy', label: 'Copy' },
+        { role: 'paste', label: 'Paste' },
+        { type: 'separator' },
+        { role: 'undo', label: 'Undo' },
+        { role: 'redo', label: 'Redo' },
+        { role: 'selectAll', label: 'Select All' }
+      ]
+    },
+    {
       role: 'help',
       submenu: [
         {

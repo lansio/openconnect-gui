@@ -556,6 +556,7 @@ function ConnectionForm({
                 name="username"
                 placeholder="username"
                 required
+                autoComplete="username"
                 value={formData.username}
                 onChange={handleInputChange}
               />
@@ -570,6 +571,7 @@ function ConnectionForm({
                     id="password"
                     name="password"
                     placeholder="Enter password manually or leave empty to use keychain"
+                    autoComplete="current-password"
                     value={formData.password}
                     onChange={handleInputChange}
                     disabled={!useKeychain && !formData.password}
@@ -598,6 +600,7 @@ function ConnectionForm({
                   name="password"
                   placeholder="password"
                   required
+                  autoComplete="current-password"
                   value={formData.password}
                   onChange={handleInputChange}
                 />

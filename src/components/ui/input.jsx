@@ -3,7 +3,25 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 const Input = React.forwardRef(
-  ({ className, type, ...props }, ref) => {
+  ({ className, type = "text", autoComplete, ...props }, ref) => {
+    // Auto-generate autocomplete attribute if not provided based on field properties
+    const generatedAutoComplete = (() => {
+      const name = props.name || "";
+      if (autoComplete) return autoComplete;
+      
+      // Detect common field types
+      if (name.includes("user") || name.includes("email") || name.includes("login")) {
+        return "username";
+      }
+      if (name.includes("pass") || type === "password") {
+        return "current-password";
+      }
+      if (name.includes("pin") || name.includes("code")) {
+        return "one-time-code";
+      }
+      return undefined;
+    })();
+
     return (
       <input
         type={type}
@@ -12,6 +30,11 @@ const Input = React.forwardRef(
           className
         )}
         ref={ref}
+        autoComplete={generatedAutoComplete}
+        autocapitalize="off"
+        autocomplete="on"
+        spellcheck="false"
+        data-lpignore="true"
         {...props}
       />
     )

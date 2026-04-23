@@ -52,6 +52,7 @@ function TwoFactorPrompt({ onComplete, profileName }) {
                 type="password"
                 id="pin"
                 placeholder="Enter 2FA verification code"
+                autoComplete="one-time-code"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
                 onKeyPress={handleKeyPress}
